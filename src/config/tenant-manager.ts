@@ -11,7 +11,9 @@ export interface TenantConfig {
 }
 
 export class TenantManager {
-  private static tenantsFilePath = path.join(process.cwd(), 'src', 'config', 'tenants.json');
+  private static tenantsFilePath = fs.existsSync(path.join(process.cwd(), 'tenants.json'))
+    ? path.join(process.cwd(), 'tenants.json')
+    : path.join(process.cwd(), 'src', 'config', 'tenants.json');
   private static tenants: Record<string, TenantConfig> = {};
 
   static {
