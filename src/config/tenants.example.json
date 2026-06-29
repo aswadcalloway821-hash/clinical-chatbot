@@ -1,0 +1,9 @@
+{
+  "YOUR_WHATSAPP_PHONE_NUMBER_ID": {
+    "clinicName": "عيادة ابتسامة البصرة",
+    "spreadsheetId": "YOUR_GOOGLE_SPREADSHEET_ID",
+    "verifyToken": "YOUR_WEBHOOK_VERIFY_TOKEN",
+    "apiToken": "YOUR_META_WHATSAPP_CLOUD_API_ACCESS_TOKEN",
+    "geminiApiKey": "YOUR_GEMINI_API_KEY"
+  }
+}

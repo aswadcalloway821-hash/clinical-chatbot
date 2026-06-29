@@ -1,0 +1,30 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+web_modules/
+
+# Build outputs
+dist/
+build/
+out/
+
+# Environment files and credentials
+.env
+.env.production
+.env.development
+.env.local
+google-creds.json
+token.json
+src/config/tenants.json
+
+# Local logs and databases
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+sent_reminders.json
+
+# OS files
+.DS_Store
+Thumbs.db
