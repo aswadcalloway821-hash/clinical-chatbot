@@ -43,7 +43,7 @@ export class GeminiService {
 لتقليل عدد الرسائل والفركشن على الزبون، اتبع القواعد التالية بدقة:
 *   اقتراح موعد استباقي من الغد فما فوق: لا تنتظر الزبون يسألك "شوكت المواعيد المفتوحة". اقترح عليه دائماً وبشكل مباشر موعداً محدداً (اليوم والتاريخ والساعة) يبدأ من يوم غد فما فوق (تاريخ اليوم الحالي + 1 يوم فما فوق). لا تقترح مواعيد اليوم الحالي أبداً لتجنب الحجوزات المستعجلة والممتلئة، إلا إذا طلب الزبون اليوم بالاسم.
 *   عند اختيار يوم محدد: إذا حدد الزبون يوماً معيناً (مثلاً: الخميس)، فافحص المواعيد واعرض عليه الأوقات المتوفرة في ذلك اليوم مباشرة واقترح أقرب ساعة متوفرة فيه.
-*   التعامل مع المواعيد الحجوزة: إذا حدد الزبون وقتاً وتبين أنه محجوز، فافحص المواعيد المتاحة واقترح عليه فوراً أقرب موعد بديل يبدأ من نفس النقطة والوقت الجديد الذي حدده المراجع فما فوق (مثال: إذا طلب 4 العصر وطلع محجوز، اقترح عليه 4:30 أو 5 العصر في نفس اليوم، أو اليوم التالي مباشرة).
+*   التعامل مع المواعيد المحجوزة: إذا حدد الزبون وقتاً وتبين أنه محجوز، فافحص المواعيد المتاحة واقترح عليه فوراً أقرب موعد بديل يبدأ من نفس النقطة والوقت الجديد الذي حدده المراجع فما فوق (مثال: إذا طلب 4 العصر وطلع محجوز، اقترح عليه 4:30 أو 5 العصر في نفس اليوم، أو اليوم التالي مباشرة).
 *   إدارة الفروع المتعددة: أخبر المراجع بوضوح بالفروع المتاحة الفعالة (التي تجلبها ديناميكياً باستخدام الأداة get_clinic_info)، واقترح عليه أقرب موعد في أحدهما واسأله أي فرع يفضله أو أقرب إليه لتسهيل الحجز.
 *   اقتراح الأطباء ومواعيدهم: اقترح أسماء الأطباء المتوفرين للتخصص المطلوب (تأخذهم ديناميكياً من الأداة)، ووضح له الطبيب الذي يملك أقرب موعد متاح لتسهيل الاختيار (مثال: "عدنا دكتورة سارة ودكتور علي للتجميل، وأقرب موعد متوفر هو وية دكتورة سارة باجر الساعة 5 العصر").
 
@@ -111,7 +111,7 @@ export class GeminiService {
 
 ## 7. شجرة الردود السريعة وحساب الخصم ديناميكياً
 *   حساب وعرض الخصم التلقائي عند السؤال عن الأسعار:
-    - اقرأ السعر الأصلي من عمود Price (مثال: 50000) وقيمة الخصم من عمود Offer للخدمة المطلوبة (مثال: "خصم 10%").
+    - اقرأ السعر الأصلي من عمود Price (مثال: 50000) وقيمة الخم من عمود Offer للخدمة المطلوبة (مثال: "خصم 10%").
     - قم بحساب السعر النهائي بعد الخصم ديناميكياً في ذهنك (مثال: خصم 10% على 50,000 يجعل السعر 45,000 دينار).
     - اعرض السعرين بوضوح للمراجع ليشعر بفرق التوفير.
     - الرد النموذجي: "سعر [اسم الخدمة] الأصلي هو [السعر الأصلي] دينار، وحالياً عدنا عرض خصم [الخصم]، فيطلع عليك السعر بعد الخصم [السعر المحسوب] دينار فقط! حاب نحجزلك موعد فحص عليها عيني؟"
@@ -199,14 +199,30 @@ export class GeminiService {
     }
   ];
 
+  public static async uploadAudioFile(localPath: string, mimeType: string): Promise<{ uri: string; mimeType: string } | null> {
+    if (!this.ai) return null;
+    try {
+      console.log(`🎙️ Uploading audio file to Gemini Files API: ${localPath}...`);
+      const uploadResult = await this.ai.files.upload({
+        file: localPath,
+        mimeType: mimeType
+      } as any);
+      console.log(`🎙️ File uploaded successfully: ${uploadResult.uri}`);
+      return { uri: uploadResult.uri || '', mimeType: uploadResult.mimeType || mimeType };
+    } catch (err: any) {
+      console.error('❌ Failed to upload audio file to Gemini:', err.message);
+      return null;
+    }
+  }
+
   /**
    * Main chat function for handling user turns with session management and tool execution.
    */
   public static async handleChatTurn(
     phoneNumberId: string,
     phoneNumber: string,
-    messageInput: string,
-    history: any[]
+    messageInput: string | any[],
+    history: any[] = []
   ): Promise<{ responseText: string; updatedHistory: any[] }> {
     // 1. Fetch Tenant configs dynamically
     const tenants = TenantManager.getAllTenants();
@@ -216,7 +232,7 @@ export class GeminiService {
     if (!this.ai) {
       console.warn('⚠️ Gemini Client not initialized. Running mock responses.');
       const mockText = this.generateMockResponse(messageInput);
-      return { responseText: mockText, updatedHistory: [...history, { role: 'user', parts: [{ text: messageInput }] }, { role: 'model', parts: [{ text: mockText }] }] };
+      return { responseText: mockText, updatedHistory: [...history, { role: 'user', parts: [{ text: typeof messageInput === 'string' ? messageInput : 'بصمة صوتية' }] }, { role: 'model', parts: [{ text: mockText }] }] };
     }
 
     const aiClient = this.ai;
