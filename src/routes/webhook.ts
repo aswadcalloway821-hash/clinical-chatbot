@@ -146,9 +146,53 @@ router.post('/', async (req: Request, res: Response) => {
               await WhatsappService.sendTextMessage(from, 'فدوة عيني، صار خطأ باستلام البصمة الصوتية. تكدر تكتبلي رسالة نصية؟', apiToken, phoneNumberId, message.id);
             }
           }
+        } else if (messageType === 'image') {
+          const imageId = message.image?.id;
+          if (imageId) {
+            console.log(`🖼️ Downloading image from Meta with ID: ${imageId}...`);
+            const downloadResult = await WhatsappService.downloadMedia(imageId, apiToken, 'tmp_images');
+
+            if (downloadResult) {
+              let responseText = '';
+              let updatedHistory = history;
+
+              // Upload image to Gemini File API
+              const uploadResult = await GeminiService.uploadAudioFile(downloadResult.localPath, downloadResult.mimeType, geminiApiKey);
+
+              if (uploadResult) {
+                const messageInput = [
+                  { text: 'هذه صورة مرسلة من المراجع للعيادة. قم بفحص الصورة والإجابة على أي أسئلة يطرحها المراجع بخصوصها، أو توجيهه للموعد المناسب:' },
+                  { fileData: { fileUri: uploadResult.uri, mimeType: uploadResult.mimeType } }
+                ];
+
+                const chatResult = await GeminiService.handleChatTurn(phoneNumberId, from, messageInput, history);
+                responseText = chatResult.responseText;
+                updatedHistory = chatResult.updatedHistory;
+              } else {
+                const mockText = 'أرسل المراجع صورة للعيادة.';
+                const chatResult = await GeminiService.handleChatTurn(phoneNumberId, from, mockText, history);
+                responseText = chatResult.responseText;
+                updatedHistory = chatResult.updatedHistory;
+              }
+
+              // Save history and reply
+              SessionManager.saveHistory(from, updatedHistory);
+              await WhatsappService.sendTextMessage(from, responseText, apiToken, phoneNumberId, message.id);
+
+              // Clean up local temp file
+              try {
+                fs.unlinkSync(downloadResult.localPath);
+                console.log(`🗑️ Temporary image deleted: ${downloadResult.localPath}`);
+              } catch (cleanupErr: any) {
+                console.error('⚠️ Failed to delete temporary image file:', cleanupErr.message);
+              }
+            } else {
+              await WhatsappService.sendTextMessage(from, 'فدوة عيني، صار خطأ باستلام الصورة. تكدر تجرب ترسلها مرة ثانية؟', apiToken, phoneNumberId, message.id);
+            }
+          }
         } else {
           console.log(`⚠️ Unsupported message type: ${messageType}`);
-          await WhatsappService.sendTextMessage(from, 'أهلاً عيني، حالياً أستقبل الرسائل النصية وبصمات الصوت فقط.', apiToken, phoneNumberId, message.id);
+          await WhatsappService.sendTextMessage(from, 'أهلاً عيني، حالياً أستقبل الرسائل النصية، بصمات الصوت، والصور فقط.', apiToken, phoneNumberId, message.id);
         }
       }
 

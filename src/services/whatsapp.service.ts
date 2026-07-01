@@ -132,4 +132,78 @@ export class WhatsappService {
       return null;
     }
   }
+
+  /**
+   * Downloads a media file (like an image or voice note) from Meta servers.
+   */
+  public static async downloadMedia(
+    mediaId: string,
+    apiToken?: string,
+    folderName = 'tmp_media'
+  ): Promise<{ localPath: string; mimeType: string } | null> {
+    try {
+      const activeToken = apiToken || config.whatsapp.apiToken;
+      if (!activeToken) {
+        console.error('❌ Meta API Token is missing.');
+        return null;
+      }
+
+      const mediaMetadataUrl = `${this.apiUrl}/${mediaId}`;
+      const headers = {
+        'Authorization': `Bearer ${activeToken}`
+      };
+
+      console.log(`🔍 Querying media URL for ID: ${mediaId}...`);
+      const metadataResponse = await axios.get(mediaMetadataUrl, { headers });
+      const downloadUrl = metadataResponse.data.url;
+      const mimeType = metadataResponse.data.mime_type;
+
+      if (!downloadUrl) {
+        console.error('❌ Failed to retrieve download URL from Meta.');
+        return null;
+      }
+
+      let extension = 'bin';
+      if (mimeType.includes('jpeg') || mimeType.includes('jpg')) extension = 'jpg';
+      else if (mimeType.includes('png')) extension = 'png';
+      else if (mimeType.includes('webp')) extension = 'webp';
+      else if (mimeType.includes('ogg')) extension = 'ogg';
+      else if (mimeType.includes('amr')) extension = 'amr';
+      else if (mimeType.includes('mp3')) extension = 'mp3';
+      else if (mimeType.includes('aac')) extension = 'aac';
+
+      const tempDir = path.join(process.cwd(), folderName);
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+
+      const localFilePath = path.join(tempDir, `${mediaId}.${extension}`);
+
+      console.log(`📥 Downloading media from Meta servers: ${downloadUrl}`);
+      const fileWriter = fs.createWriteStream(localFilePath);
+      
+      const fileResponse = await axios({
+        method: 'get',
+        url: downloadUrl,
+        responseType: 'stream',
+        headers
+      });
+
+      fileResponse.data.pipe(fileWriter);
+
+      return new Promise((resolve, reject) => {
+        fileWriter.on('finish', () => {
+          console.log(`✅ Media downloaded successfully and saved to: ${localFilePath}`);
+          resolve({ localPath: localFilePath, mimeType });
+        });
+        fileWriter.on('error', (err) => {
+          console.error('❌ Error writing media file to disk:', err.message);
+          resolve(null);
+        });
+      });
+    } catch (error: any) {
+      console.error('❌ Error downloading media:', error.response?.data || error.message);
+      return null;
+    }
+  }
 }
