@@ -64,6 +64,28 @@ export class GoogleService {
     return iso.substring(0, 19) + '+03:00';
   }
 
+  public static toHumanReadableDateTime(isoStr: string): string {
+    try {
+      const date = new Date(isoStr);
+      const offsetMinutes = 180; // UTC+3
+      const localTime = new Date(date.getTime() + offsetMinutes * 60 * 1000);
+      const yyyy = localTime.getUTCFullYear();
+      const mm = String(localTime.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(localTime.getUTCDate()).padStart(2, '0');
+      
+      let hours = localTime.getUTCHours();
+      const minutes = String(localTime.getUTCMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      const hh = String(hours).padStart(2, '0');
+      
+      return `${yyyy}-${mm}-${dd} ${hh}:${minutes} ${ampm}`;
+    } catch {
+      return isoStr;
+    }
+  }
+
   /**
    * Normalizes Arabic text to handle Alefs, Taa Marbouta, Spaces, etc.
    */
@@ -305,7 +327,7 @@ export class GoogleService {
         bookingWithId.phoneNumber,
         bookingWithId.branch,
         bookingWithId.serviceName,
-        bookingWithId.bookingDatetime,
+        GoogleService.toHumanReadableDateTime(bookingWithId.bookingDatetime),
         bookingWithId.durationMinutes.toString(),
         bookingWithId.status,
         bookingWithId.notes || '',
@@ -382,7 +404,11 @@ export class GoogleService {
         
         let dateMatch = false;
         try {
-          dateMatch = new Date(rowDatetime).toDateString() === oldDate.toDateString();
+          // If the date string in sheets doesn't specify timezone, append +03:00
+          const finalDateStr = (rowDatetime.includes('AM') || rowDatetime.includes('PM')) && !rowDatetime.includes('+')
+            ? `${rowDatetime} +03:00`
+            : rowDatetime;
+          dateMatch = new Date(finalDateStr).toDateString() === oldDate.toDateString();
         } catch {}
 
         if (nameMatch && phoneMatch && dateMatch) {
@@ -404,7 +430,7 @@ export class GoogleService {
         spreadsheetId: sheetId,
         range: `Bookings!F${rowIndex}`,
         valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [[newDatetimeStr]] }
+        requestBody: { values: [[GoogleService.toHumanReadableDateTime(newDatetimeStr)]] }
       });
 
       // Update doctor in column J (index 9) if provided
