@@ -351,6 +351,153 @@ export class GoogleService {
   }
 
   /**
+   * Checks if a phone number has 2 or more 'No-Show' entries in the Bookings sheet.
+   */
+  public static async isPhoneNumberBlocked(phone: string, spreadsheetId?: string): Promise<boolean> {
+    if (this.isMockMode) {
+      return false;
+    }
+
+    try {
+      const auth = await GoogleService.getAuthClient();
+      const sheetId = spreadsheetId || config.google.spreadsheetId;
+
+      const response = await this.sheets.spreadsheets.values.get({
+        auth,
+        spreadsheetId: sheetId,
+        range: 'Bookings!A2:J1000'
+      });
+
+      const rows = response.data.values;
+      if (!rows || rows.length === 0) {
+        return false;
+      }
+
+      const cleanPhone = (p: string) => p.replace(/\D/g, '').slice(-9);
+      const targetPhoneClean = cleanPhone(phone);
+
+      let noShowCount = 0;
+      for (const row of rows) {
+        const rowPhone = row[2] || '';
+        const rowStatus = row[7] || ''; // Column H (index 7) is status
+
+        if (cleanPhone(rowPhone) === targetPhoneClean && rowStatus.trim().toLowerCase() === 'no-show') {
+          noShowCount++;
+          if (noShowCount >= 2) {
+            console.warn(`🚫 Phone number ${phone} is blocked due to ${noShowCount} No-Shows.`);
+            return true;
+          }
+        }
+      }
+
+      return false;
+    } catch (error: any) {
+      console.error('❌ Error checking block status:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Adds a user to the Waitlist sheet.
+   */
+  public static async addToWaitlist(
+    patientName: string,
+    phoneNumber: string,
+    branch: string,
+    serviceName: string,
+    preferredDate: string,
+    doctorName?: string,
+    spreadsheetId?: string
+  ): Promise<boolean> {
+    if (this.isMockMode) {
+      console.log(`📅 [MOCK] Added ${patientName} to waitlist for ${preferredDate}`);
+      return true;
+    }
+
+    try {
+      const auth = await GoogleService.getAuthClient();
+      const sheetId = spreadsheetId || config.google.spreadsheetId;
+
+      // Ensure Waitlist tab exists
+      await this.ensureWaitlistTabExists(sheetId, auth);
+
+      const timestamp = GoogleService.toHumanReadableDateTime(new Date().toISOString());
+      const values = [[
+        timestamp,
+        patientName,
+        phoneNumber,
+        branch,
+        serviceName,
+        preferredDate,
+        doctorName || 'أي طبيب متوفر',
+        'Pending' // Status of waitlist entry
+      ]];
+
+      await this.sheets.spreadsheets.values.append({
+        auth,
+        spreadsheetId: sheetId,
+        range: 'Waitlist!A:H',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values }
+      });
+
+      console.log(`✅ Patient ${patientName} added to Waitlist successfully.`);
+      return true;
+    } catch (error: any) {
+      console.error('❌ Error adding to waitlist:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Helper to ensure the 'Waitlist' tab exists. If not, creates it with headers.
+   */
+  private static async ensureWaitlistTabExists(spreadsheetId: string, auth: any): Promise<void> {
+    try {
+      const spreadsheet = await this.sheets.spreadsheets.get({
+        auth,
+        spreadsheetId
+      });
+
+      const sheetsList = spreadsheet.data.sheets || [];
+      const hasWaitlist = sheetsList.some(s => s.properties?.title === 'Waitlist');
+
+      if (!hasWaitlist) {
+        console.log('📊 Waitlist tab not found. Creating it...');
+        await this.sheets.spreadsheets.batchUpdate({
+          auth,
+          spreadsheetId,
+          requestBody: {
+            requests: [
+              {
+                addSheet: {
+                  properties: {
+                    title: 'Waitlist'
+                  }
+                }
+              }
+            ]
+          }
+        });
+
+        // Add headers
+        const headers = [['AddedAt', 'PatientName', 'PhoneNumber', 'Branch', 'ServiceName', 'PreferredDate', 'DoctorName', 'WaitlistStatus']];
+        await this.sheets.spreadsheets.values.update({
+          auth,
+          spreadsheetId,
+          range: 'Waitlist!A1:H1',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: headers }
+        });
+        console.log('✅ Created Waitlist tab and wrote headers.');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to ensure Waitlist tab exists:', err.message);
+      throw err;
+    }
+  }
+
+  /**
    * Reschedules/modifies an existing booking in both Google Sheets and Google Calendar.
    */
   public static async modifyBooking(

@@ -196,6 +196,22 @@ export class GeminiService {
             },
             required: ['patient_name', 'phone', 'old_datetime', 'new_datetime', 'branch']
           }
+        },
+        {
+          name: 'add_to_waitlist',
+          description: 'تسجل المريض في قائمة الانتظار لفرع وتاريخ معين عندما تكون جميع المواعيد مقبطة بالكامل.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              patient_name: { type: Type.STRING, description: 'اسم المريض الكامل (الثنائي على الأقل)' },
+              phone: { type: Type.STRING, description: 'رقم هاتف المريض العراقي المكون من 11 رقماً' },
+              branch: { type: Type.STRING, description: 'اسم الفرع المفضل للمريض' },
+              service_name: { type: Type.STRING, description: 'اسم الخدمة أو العلاج المطلوبة' },
+              preferred_date: { type: Type.STRING, description: 'التاريخ المفضل للانتظار بصيغة YYYY-MM-DD' },
+              doctor_name: { type: Type.STRING, description: 'اسم الدكتور المفضل إن وجد (اختياري)' }
+            },
+            required: ['patient_name', 'phone', 'branch', 'service_name', 'preferred_date']
+          }
         }
       ]
     }
@@ -238,6 +254,14 @@ export class GeminiService {
       console.warn('⚠️ GEMINI_API_KEY is not defined. Running mock responses.');
       const mockText = this.generateMockResponse(messageInput);
       return { responseText: mockText, updatedHistory: [...history, { role: 'user', parts: [{ text: typeof messageInput === 'string' ? messageInput : 'بصمة صوتية' }] }, { role: 'model', parts: [{ text: mockText }] }] };
+    }
+
+    // Check if the phone number has 2 or more no-shows in Google Sheets and is blocked
+    const isBlocked = await GoogleService.isPhoneNumberBlocked(phoneNumber, spreadsheetId);
+    if (isBlocked) {
+      console.warn(`🚫 User ${phoneNumber} is blocked due to 2+ no-shows.`);
+      const blockedText = 'عذراً عيني، يرجى التواصل مع سكرتارية العيادة هاتفياً لتأكيد وتثبيت حجزك القادم.';
+      return { responseText: blockedText, updatedHistory: history };
     }
 
     const aiClient = new GoogleGenAI({ apiKey });
@@ -413,6 +437,30 @@ export class GeminiService {
                 newDatetime,
                 branch,
                 30, // default duration
+                doctor,
+                spreadsheetId
+              );
+
+              result = { success };
+            } else if (call.name === 'add_to_waitlist') {
+              const patientName = args.patient_name as string;
+              const phone = args.phone as string;
+              const branch = args.branch as string;
+              const service = args.service_name as string;
+              const date = args.preferred_date as string;
+              const doctor = args.doctor_name as string || undefined;
+
+              const nameParts = patientName.trim().split(/\s+/);
+              if (nameParts.length < 2) {
+                throw new Error('الاسم المرفق مفرد وغير مكتمل. يرجى طلب الاسم الثنائي على الأقل من المستخدم.');
+              }
+
+              const success = await GoogleService.addToWaitlist(
+                patientName,
+                phone,
+                branch,
+                service,
+                date,
                 doctor,
                 spreadsheetId
               );

@@ -8,6 +8,7 @@ import { config } from '../config';
 
 export class ReminderJob {
   private static sentRemindersPath = path.join(process.cwd(), 'sent_reminders.json');
+  private static sentMorningPath = path.join(process.cwd(), 'sent_morning_greetings.json');
   private static intervalId: NodeJS.Timeout | null = null;
   private static calendar = google.calendar('v3');
 
@@ -47,6 +48,10 @@ export class ReminderJob {
   private static async checkAndSendReminders(): Promise<void> {
     try {
       console.log('⏰ Running reminder scan...');
+      
+      // Send daily morning greetings at 7:00 AM Baghdad time
+      await this.checkAndSendMorningGreetings();
+
       const tenants = TenantManager.getAllTenants();
       const sentList = this.loadSentList();
 
@@ -179,6 +184,141 @@ export class ReminderJob {
       fs.writeFileSync(this.sentRemindersPath, JSON.stringify(prunedList, null, 2), 'utf8');
     } catch (e: any) {
       console.error('❌ Error saving sent_reminders.json:', e.message);
+    }
+  }
+
+  private static async checkAndSendMorningGreetings(): Promise<void> {
+    try {
+      const baghdadTimeStr = new Date().toLocaleTimeString('en-US', {
+        timeZone: 'Asia/Baghdad',
+        hour: '2-digit',
+        hour12: false
+      });
+      const baghdadHour = parseInt(baghdadTimeStr, 10);
+
+      // Only scan and send morning greetings between 7:00 AM and 8:00 AM Baghdad time
+      if (baghdadHour !== 7) {
+        return;
+      }
+
+      console.log('⏰ Running daily morning greetings scan at 7:00 AM Baghdad time...');
+      const tenants = TenantManager.getAllTenants();
+      const sentMorningList = this.loadSentMorningList();
+
+      for (const phoneId in tenants) {
+        const tenant = tenants[phoneId];
+        const spreadsheetId = tenant.spreadsheetId;
+        const apiToken = tenant.apiToken;
+
+        const branches = await GoogleService.getClinicInfo('Clinic_Metadata', spreadsheetId);
+
+        for (const branch of branches) {
+          if (!branch.calendarId || branch.calendarId.startsWith('mock_cal')) {
+            continue;
+          }
+
+          await this.scanBranchCalendarForMorningGreetings(branch, tenant, phoneId, apiToken, sentMorningList);
+        }
+      }
+
+      this.saveSentMorningList(sentMorningList);
+    } catch (error: any) {
+      console.error('❌ Error running morning greetings job:', error.message);
+    }
+  }
+
+  private static async scanBranchCalendarForMorningGreetings(
+    branch: any,
+    tenant: any,
+    phoneId: string,
+    apiToken: string,
+    sentMorningList: string[]
+  ): Promise<void> {
+    try {
+      const authClient = await GoogleService.getAuthClient();
+      if (!authClient) return;
+
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Baghdad' }); // YYYY-MM-DD
+      const timeMin = `${todayStr}T00:00:00+03:00`;
+      const timeMax = `${todayStr}T23:59:59+03:00`;
+
+      const calendarIds = branch.calendarId.split(/,|\n|\r\n/).map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+
+      for (const calId of calendarIds) {
+        const response = await this.calendar.events.list({
+          auth: authClient,
+          calendarId: calId,
+          timeMin,
+          timeMax,
+          singleEvents: true,
+          orderBy: 'startTime'
+        });
+
+        const events = response.data.items || [];
+
+        for (const event of events) {
+          if (event.status === 'cancelled' || !event.start?.dateTime || !event.id) {
+            continue;
+          }
+
+          const eventId = event.id;
+          if (sentMorningList.includes(eventId)) {
+            continue;
+          }
+
+          const description = event.description || '';
+          const phoneMatch = description.match(/الهاتف:\s*(\+?\d+)/i);
+          const nameMatch = description.match(/حجز:\s*([^\n]+)/i) || description.match(/المراجع:\s*([^\n]+)/i) || event.summary?.match(/حجز:\s*([^\n]+)/i);
+
+          if (phoneMatch) {
+            const patientPhone = phoneMatch[1].trim();
+            const patientName = nameMatch ? nameMatch[1].trim() : 'عيوني';
+
+            const startTime = new Date(event.start.dateTime);
+            const timeStr = startTime.toLocaleTimeString('en-US', {
+              timeZone: 'Asia/Baghdad',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            });
+
+            const doctorMatch = description.match(/الطبيب:\s*([^\n]+)/i);
+            const doctorName = doctorMatch ? doctorMatch[1].trim() : (branch.doctors ? branch.doctors[0] : 'الدكتور');
+
+            const messageText = `صباح الخير والورد عيني ${patientName} 🌸.. حابين نذكرك بموعدك اليوم الساعة ${timeStr} بفرع ${branch.branch} مع الدكتور ${doctorName}. نورتنا وبانتظارك بكل هلا بالعيادة! لطلب أي تعديل أو استفسار راسلنا هنا وتدلل.`;
+
+            console.log(`⏰ Sending morning greeting to ${patientPhone} for appointment at ${timeStr}...`);
+            const success = await WhatsappService.sendTextMessage(patientPhone, messageText, apiToken, phoneId);
+
+            if (success) {
+              sentMorningList.push(eventId);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`❌ Error scanning calendar for morning greetings:`, err.message);
+    }
+  }
+
+  private static loadSentMorningList(): string[] {
+    try {
+      if (fs.existsSync(this.sentMorningPath)) {
+        const fileContent = fs.readFileSync(this.sentMorningPath, 'utf8');
+        return JSON.parse(fileContent);
+      }
+    } catch (e: any) {
+      console.error('❌ Error reading sent_morning_greetings.json:', e.message);
+    }
+    return [];
+  }
+
+  private static saveSentMorningList(list: string[]): void {
+    try {
+      const prunedList = list.slice(-1000);
+      fs.writeFileSync(this.sentMorningPath, JSON.stringify(prunedList, null, 2), 'utf8');
+    } catch (e: any) {
+      console.error('❌ Error saving sent_morning_greetings.json:', e.message);
     }
   }
 }
