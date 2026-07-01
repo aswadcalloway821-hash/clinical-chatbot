@@ -189,8 +189,7 @@ export class GoogleService {
     spreadsheetId?: string
   ): Promise<any[]> {
     if (this.isMockMode) {
-      if (tabName === 'Clinic_Metadata') return mockClinicMetadata;
-      return mockServicesConfig;
+      throw new Error('Google Sheets API is running in mock mode due to missing credentials.');
     }
 
     try {
@@ -240,9 +239,7 @@ export class GoogleService {
       }
     } catch (error: any) {
       console.error(`❌ Error fetching ${tabName} from Google Sheets:`, error.message);
-      console.log('⚠️ Falling back to static mock data.');
-      if (tabName === 'Clinic_Metadata') return mockClinicMetadata;
-      return mockServicesConfig;
+      throw error;
     }
   }
 

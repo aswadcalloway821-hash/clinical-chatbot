@@ -441,7 +441,7 @@ export class GeminiService {
 
     } catch (error: any) {
       console.error('❌ Error in Gemini chat completion:', error.message);
-      const errText = 'عذراً عيني، صار خلل بسيط بالنظام. تكدر تجرب بعد شوية؟';
+      const errText = 'عذراً عيني، صار خلل فني بسيط بالنظام حالياً. يرجى إعادة المحاولة بعد دقائق، أو التواصل مع إدارة العيادة هاتفياً.';
       return { responseText: errText, updatedHistory: history };
     }
   }
