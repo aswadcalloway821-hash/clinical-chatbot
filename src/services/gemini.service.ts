@@ -199,11 +199,13 @@ export class GeminiService {
     }
   ];
 
-  public static async uploadAudioFile(localPath: string, mimeType: string): Promise<{ uri: string; mimeType: string } | null> {
-    if (!this.ai) return null;
+  public static async uploadAudioFile(localPath: string, mimeType: string, apiKey?: string): Promise<{ uri: string; mimeType: string } | null> {
+    const activeKey = apiKey || config.gemini.apiKey;
+    if (!activeKey) return null;
     try {
       console.log(`🎙️ Uploading audio file to Gemini Files API: ${localPath}...`);
-      const uploadResult = await this.ai.files.upload({
+      const aiClient = new GoogleGenAI({ apiKey: activeKey });
+      const uploadResult = await aiClient.files.upload({
         file: localPath,
         mimeType: mimeType
       } as any);
@@ -228,14 +230,15 @@ export class GeminiService {
     const tenants = TenantManager.getAllTenants();
     const tenant = tenants[phoneNumberId] || tenants[Object.keys(tenants)[0]];
     const spreadsheetId = tenant?.spreadsheetId;
+    const apiKey = tenant?.geminiApiKey || config.gemini.apiKey;
 
-    if (!this.ai) {
-      console.warn('⚠️ Gemini Client not initialized. Running mock responses.');
+    if (!apiKey) {
+      console.warn('⚠️ GEMINI_API_KEY is not defined. Running mock responses.');
       const mockText = this.generateMockResponse(messageInput);
       return { responseText: mockText, updatedHistory: [...history, { role: 'user', parts: [{ text: typeof messageInput === 'string' ? messageInput : 'بصمة صوتية' }] }, { role: 'model', parts: [{ text: mockText }] }] };
     }
 
-    const aiClient = this.ai;
+    const aiClient = new GoogleGenAI({ apiKey });
 
     try {
       // Inject current date context into system instructions

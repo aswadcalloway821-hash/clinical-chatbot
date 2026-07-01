@@ -73,6 +73,7 @@ router.post('/', async (req: Request, res: Response) => {
         // Resolve active tenant credentials
         const tenant = TenantManager.getTenant(phoneNumberId);
         const apiToken = tenant ? tenant.apiToken : config.whatsapp.apiToken;
+        const geminiApiKey = tenant ? tenant.geminiApiKey : config.gemini.apiKey;
 
         console.log(`💬 Message received from ${from} | Type: ${messageType} | Phone ID: ${phoneNumberId}`);
 
@@ -112,7 +113,7 @@ router.post('/', async (req: Request, res: Response) => {
               let updatedHistory = history;
 
               // 3. Upload to Gemini File API if key exists, else handle mock
-              const uploadResult = await GeminiService.uploadAudioFile(localPath, 'audio/ogg');
+              const uploadResult = await GeminiService.uploadAudioFile(localPath, 'audio/ogg', geminiApiKey);
 
               if (uploadResult) {
                 const messageInput = [
