@@ -3,6 +3,7 @@ import { google } from 'googleapis';
 import { config } from '../config';
 import { GoogleService } from './google.service';
 import { TenantManager } from '../config/tenant-manager';
+import { WhatsappService } from './whatsapp.service';
 
 export class GeminiService {
   private static ai: GoogleGenAI | null = null;
@@ -32,6 +33,7 @@ export class GeminiService {
 *   الدور: موظف استعلامات وحجوزات ذكي ومحترف للعيادة.
 *   الهدف: تثبيت حجز المراجع بأسرع وقت، وبأقل كلام ممكن، وبأسلوب بشري طبيعي جداً.
 *   اللهجة: عراقية واضحة، مهذبة، وقريبة للقلب (بدون مبالغة أو رسميات زايدة، وكأنه موظف عيادة حقيقي).
+*   القدرة المتعددة الوسائط (السمع والرؤية): أنت قادر على سماع وفهم البصمات الصوتية ورؤية الصور التي يرسلها المراجع بالكامل وبدقة عالية جداً. يمنع منعاً باتاً إخبار المراجع بأنك لا تفهم البصمات أو لا تستطيع سماعها. أجب على محتوى البصمات والصور مباشرة وحللها وتفاعل معها بذكاء ولهجة عراقية.
 *   مسار الحوار الإرشادي الصارم (خطوتان فقط):
     يجب عليك دائماً إرشاد وتوجيه المراجع:
     1.  الخطوة 1 (اختيار الخدمة والفرع والطبيب والموعد): تحديد الخدمة المطلوبة والفرع المفضل والطبيب، وعرض المواعيد المتاحة للزبون ومساعدته في اختيار الوقت الأنسب.
@@ -107,7 +109,7 @@ export class GeminiService {
       🧾 وصل تأكيد الحجز الرقمي
       --------------------------------
       👤 المريض: [الاسم]
-      📍 الفرع: [اسم الفرع]
+      📍 الفرع: [اسم الفرع] [إذا توفر رابط الخريطة mapUrl للفرع بالشيت، قم بإدراجه هنا كـ (رابط الخرائط: URL)]
       🩺 الدكتور: [اسم الدكتور الفعلي]
       ⏰ الموعد: [اليوم والتاريخ والوقت بصيغة 12 ساعة]
       --------------------------------
@@ -219,6 +221,20 @@ export class GeminiService {
               doctor_name: { type: Type.STRING, description: 'اسم الدكتور المفضل إن وجد (اختياري)' }
             },
             required: ['patient_name', 'phone', 'branch', 'service_name', 'preferred_date']
+          }
+        },
+        {
+          name: 'cancel_booking',
+          description: 'يلغي حجز قائم تماماً في الشيت وتقويم جوجل.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              patient_name: { type: Type.STRING, description: 'اسم المريض الكامل (الثنائي على الأقل)' },
+              phone: { type: Type.STRING, description: 'رقم هاتف المريض المكون من 11 رقماً' },
+              datetime: { type: Type.STRING, description: 'تاريخ ووقت الحجز القديم المراد إلغاؤه بصيغة ISO (مثال: 2026-06-20T16:00:00+03:00)' },
+              branch: { type: Type.STRING, description: 'اسم الفرع الذي تم الحجز فيه' }
+            },
+            required: ['patient_name', 'phone', 'datetime', 'branch']
           }
         }
       ]
@@ -428,8 +444,13 @@ export class GeminiService {
 
               const sheetSuccess = await GoogleService.logPatientBooking(booking, spreadsheetId);
               const calSuccess = await GoogleService.createCalendarEvent(booking, spreadsheetId);
-              
-              result = { success: sheetSuccess && calSuccess, doctorName };
+              const success = sheetSuccess && calSuccess;
+              result = { success, doctorName };
+
+              if (success && tenant && tenant.staffPhoneNumber) {
+                const staffMsg = `🔔 تنبيه حجز جديد:\n👤 المريض: ${patientName}\n📞 الهاتف: ${phone}\n📍 الفرع: ${branch}\n🦷 الإجراء: ${service}\n🩺 الدكتور: ${doctorName}\n⏰ الموعد: ${GoogleService.toHumanReadableDateTime(datetime)}`;
+                WhatsappService.sendTextMessage(tenant.staffPhoneNumber, staffMsg, undefined, phoneNumberId).catch((err: any) => console.error('❌ Failed to notify staff:', err.message));
+              }
             } else if (call.name === 'modify_booking') {
               const patientName = args.patient_name as string;
               const phone = args.phone as string;
@@ -450,6 +471,11 @@ export class GeminiService {
               );
 
               result = { success };
+
+              if (success && tenant && tenant.staffPhoneNumber) {
+                const staffMsg = `🔔 تنبيه تعديل موعد:\n👤 المريض: ${patientName}\n📞 الهاتف: ${phone}\n📍 الفرع: ${branch}\n⏰ الموعد القديم: ${GoogleService.toHumanReadableDateTime(oldDatetime)}\n⏰ الموعد الجديد: ${GoogleService.toHumanReadableDateTime(newDatetime)}\n🩺 الدكتور: ${doctor || 'نفس الدكتور'}`;
+                WhatsappService.sendTextMessage(tenant.staffPhoneNumber, staffMsg, undefined, phoneNumberId).catch((err: any) => console.error('❌ Failed to notify staff:', err.message));
+              }
             } else if (call.name === 'add_to_waitlist') {
               const patientName = args.patient_name as string;
               const phone = args.phone as string;
@@ -474,6 +500,26 @@ export class GeminiService {
               );
 
               result = { success };
+            } else if (call.name === 'cancel_booking') {
+              const patientName = args.patient_name as string;
+              const phone = args.phone as string;
+              const datetime = args.datetime as string;
+              const branch = args.branch as string;
+
+              const success = await GoogleService.cancelBooking(
+                patientName,
+                phone,
+                datetime,
+                branch,
+                spreadsheetId
+              );
+
+              result = { success };
+
+              if (success && tenant && tenant.staffPhoneNumber) {
+                const staffMsg = `🔔 تنبيه إلغاء موعد حجز:\n👤 المريض: ${patientName}\n📞 الهاتف: ${phone}\n📍 الفرع: ${branch}\n⏰ الموعد الملغي: ${GoogleService.toHumanReadableDateTime(datetime)}`;
+                WhatsappService.sendTextMessage(tenant.staffPhoneNumber, staffMsg, undefined, phoneNumberId).catch((err: any) => console.error('❌ Failed to notify staff:', err.message));
+              }
             }
           } catch (toolError: any) {
             console.error('❌ Error executing tool ' + call.name + ':', toolError.message);

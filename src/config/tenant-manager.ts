@@ -8,6 +8,7 @@ export interface TenantConfig {
   apiToken: string;
   geminiApiKey: string;
   reminderHoursBefore?: number;
+  staffPhoneNumber?: string;
 }
 
 export class TenantManager {

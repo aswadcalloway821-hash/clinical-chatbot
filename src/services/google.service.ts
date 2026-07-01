@@ -233,7 +233,8 @@ export class GoogleService {
           workingHours: r[2],
           phone: r[3],
           calendarId: r[4],
-          doctors: r[5] ? r[5].split(/,|\n|\r\n/).map((s: string) => s.trim()).filter((s: string) => s.length > 0) : []
+          doctors: r[5] ? r[5].split(/,|\n|\r\n/).map((s: string) => s.trim()).filter((s: string) => s.length > 0) : [],
+          mapUrl: r[6] || ''
         }));
       } else if (tabName === 'Doctors_Config') {
         return rows.map(r => ({
@@ -498,6 +499,132 @@ export class GoogleService {
   }
 
   /**
+   * Cancels a booking in both Google Sheets (sets Status to Cancelled) and Google Calendar (deletes the event).
+   */
+  public static async cancelBooking(
+    patientName: string,
+    phone: string,
+    datetimeStr: string,
+    branch: string,
+    spreadsheetId?: string
+  ): Promise<boolean> {
+    if (this.isMockMode) {
+      console.log(`📅 [MOCK] Cancelled booking for ${patientName} on ${datetimeStr}`);
+      return true;
+    }
+
+    try {
+      const auth = await GoogleService.getAuthClient();
+      const sheetId = spreadsheetId || config.google.spreadsheetId;
+
+      // Step 1: Find the row in Google Sheets
+      const response = await this.sheets.spreadsheets.values.get({
+        auth,
+        spreadsheetId: sheetId,
+        range: 'Bookings!A2:J1000'
+      });
+
+      const rows = response.data.values;
+      if (!rows || rows.length === 0) {
+        console.error('❌ No bookings found in Sheets to cancel.');
+        return false;
+      }
+
+      const cleanPhone = (p: string) => p.replace(/\D/g, '').slice(-9);
+      const targetPhoneClean = cleanPhone(phone);
+      const targetDate = new Date(datetimeStr);
+      const normalizedPatientName = this.normalizeArabicText(patientName);
+
+      let matchedRowIndex = -1;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowPatientName = this.normalizeArabicText(row[1] || '');
+        const rowPhone = row[2] || '';
+        const rowDatetime = row[5] || '';
+
+        const nameMatch = rowPatientName.includes(normalizedPatientName) || normalizedPatientName.includes(rowPatientName);
+        const phoneMatch = cleanPhone(rowPhone) === targetPhoneClean;
+        
+        let dateMatch = false;
+        try {
+          const finalDateStr = (rowDatetime.includes('AM') || rowDatetime.includes('PM')) && !rowDatetime.includes('+')
+            ? `${rowDatetime} +03:00`
+            : rowDatetime;
+          dateMatch = new Date(finalDateStr).toDateString() === targetDate.toDateString();
+        } catch {}
+
+        if (nameMatch && phoneMatch && dateMatch) {
+          matchedRowIndex = i;
+          break;
+        }
+      }
+
+      if (matchedRowIndex === -1) {
+        console.error(`❌ Booking not found in Sheets to cancel for patient ${patientName} on ${datetimeStr}.`);
+        return false;
+      }
+
+      const rowIndex = matchedRowIndex + 2; // Convert to 1-based sheet row index
+
+      // Update status to 'Cancelled' in column H (index 7)
+      await this.sheets.spreadsheets.values.update({
+        auth,
+        spreadsheetId: sheetId,
+        range: `Bookings!H${rowIndex}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [['Cancelled']] }
+      });
+
+      console.log(`✅ Google Sheets booking status updated to Cancelled for row ${rowIndex}.`);
+
+      // Step 2: Delete Google Calendar Event
+      const metadata = await this.getClinicInfo('Clinic_Metadata', spreadsheetId);
+      const branchInfo = metadata.find(m => m.branch.includes(branch) || branch.includes(m.branch));
+
+      if (branchInfo && branchInfo.calendarId) {
+        const calendarIds = branchInfo.calendarId.split(/,|\n|\r\n/).map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+        
+        const dateStr = datetimeStr.split('T')[0];
+        const timeMin = `${dateStr}T00:00:00+03:00`;
+        const timeMax = `${dateStr}T23:59:59+03:00`;
+
+        for (const calId of calendarIds) {
+          try {
+            const eventsRes = await this.calendar.events.list({
+              auth,
+              calendarId: calId,
+              timeMin,
+              timeMax,
+              singleEvents: true
+            });
+
+            const events = eventsRes.data.items || [];
+            const matchedEvent = events.find(e => this.normalizeArabicText(e.summary || '').includes(normalizedPatientName));
+
+            if (matchedEvent && matchedEvent.id) {
+              console.log(`📅 Deleting Google Calendar event ${matchedEvent.id} from calendar ${calId}...`);
+              await this.calendar.events.delete({
+                auth,
+                calendarId: calId,
+                eventId: matchedEvent.id
+              });
+              console.log('✅ Google Calendar Event deleted successfully.');
+              break;
+            }
+          } catch (calErr: any) {
+            console.error(`⚠️ Failed to delete event on calendar ${calId}:`, calErr.message);
+          }
+        }
+      }
+
+      return true;
+    } catch (error: any) {
+      console.error('❌ Failed to cancel booking:', error.message);
+      return false;
+    }
+  }
+
+  /**
    * Reschedules/modifies an existing booking in both Google Sheets and Google Calendar.
    */
   public static async modifyBooking(
@@ -711,13 +838,42 @@ export class GoogleService {
       }
 
       // Determine which calendars to check (match preferred doctor if specified)
-      let targetCalendarIds = calendarIds;
-      if (doctorName && branchInfo.doctors && branchInfo.doctors.length > 0) {
-        const docIndex = branchInfo.doctors.findIndex((d: string) => d.includes(doctorName) || doctorName.includes(d));
-        if (docIndex !== -1 && calendarIds[docIndex]) {
-          targetCalendarIds = [calendarIds[docIndex]];
+      let targetCalendarIdsWithNames = calendarIds.map((calId: string, idx: number) => ({
+        calId,
+        docName: branchInfo.doctors?.[idx] || ''
+      }));
+
+      // Filter out calendars of doctors who are on leave/off on the target date
+      const doctorsConfig = await this.getClinicInfo('Doctors_Config', spreadsheetId);
+      const targetDateObj = new Date(dateStr);
+      const dayOfWeekAr = targetDateObj.toLocaleDateString('ar-IQ', { weekday: 'long' }); // e.g. 'الخميس'
+      const dayOfWeekEn = targetDateObj.toLocaleDateString('en-US', { weekday: 'long' }); // e.g. 'Thursday'
+
+      targetCalendarIdsWithNames = targetCalendarIdsWithNames.filter(({ docName }: { docName: string }) => {
+        if (!docName) return true;
+        const docConfig = doctorsConfig.find((d: any) => d.doctorName.includes(docName) || docName.includes(d.doctorName));
+        if (docConfig && docConfig.offDays) {
+          const offDaysStr = String(docConfig.offDays).toLowerCase();
+          const isOff = offDaysStr.includes(dateStr) || 
+                        offDaysStr.includes(dayOfWeekAr.toLowerCase()) || 
+                        offDaysStr.includes(dayOfWeekEn.toLowerCase()) ||
+                        offDaysStr.includes('إجازة') ||
+                        offDaysStr.includes('سفر');
+          if (isOff) {
+            console.log(`🏖️ Doctor ${docName} is off/on leave on ${dateStr}. Excluding calendar.`);
+            return false;
+          }
         }
+        return true;
+      });
+
+      if (doctorName) {
+        targetCalendarIdsWithNames = targetCalendarIdsWithNames.filter(({ docName }: { docName: string }) => 
+          docName.includes(doctorName) || doctorName.includes(docName)
+        );
       }
+
+      const targetCalendarIds = targetCalendarIdsWithNames.map((item: any) => item.calId);
 
       const workingHoursStr = branchInfo.workingHours || '03:00 PM - 09:00 PM';
       const timeRange = this.parseWorkingHours(workingHoursStr);
