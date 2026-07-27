@@ -69,8 +69,8 @@ export class BookingService {
       return {
         clinic_name: clinic?.name || 'عيادة د علي التخصصية',
         branches: (branches || []).map((b) => ({ id: b.id, name: b.name })),
-        doctors: (doctors || []).map((d) => ({ id: d.id, name: (d.name || '').replace(/\./g, ''), title: d.title })),
-        services: (services || []).map((s) => ({ id: s.id, name: (s.name || '').replace(/\./g, ''), price: s.price })),
+        doctors: (doctors || []).map((d) => ({ id: d.id, name: (d.name || '').replace(/[\.*#@$]/g, ''), title: d.title })),
+        services: (services || []).map((s) => ({ id: s.id, name: (s.name || '').replace(/[\.*#@$]/g, ''), price: s.price })),
         offerings: (offerings || []).map((o) => ({
           id: o.id,
           doctor_id: o.doctor_id,
@@ -82,7 +82,7 @@ export class BookingService {
       console.warn('⚠️ Context Injector fallback triggered:', err.message);
       return {
         clinic_name: 'عيادة د علي التخصصية',
-        branches: [{ id: '33333333-1111-1111-1111-111111111111', name: 'الفرع الرئيسي - العشار' }],
+        branches: [{ id: '33333333-1111-1111-1111-111111111111', name: 'الفرع الرئيسي العشار' }],
         doctors: [{ id: '55555555-1111-1111-1111-111111111111', name: 'د علي الحسان' }],
         services: [{ id: '66666666-1111-1111-1111-111111111111', name: 'كشفية باطنية عامة' }],
         offerings: [
@@ -146,7 +146,7 @@ export class BookingService {
   }
 
   /**
-   * 2️⃣ البحث عن أقرب موعد متاح لخدمة وطبيب معينيين عبر RPC المباشرة
+   * 2️⃣ البحث عن أقرب موعد متاح لخدمة معينة عبر RPC المباشرة
    */
   async getNearestAvailableSlot(
     clinicId: string,
@@ -181,8 +181,8 @@ export class BookingService {
     return {
       slot_time: row.slot_time || `${defaultDate}T16:00:00Z`,
       doctor_id: row.doctor_id || '55555555-1111-1111-1111-111111111111',
-      doctor_name: (row.doctor_name || 'د علي الحسان').replace(/\./g, ''),
-      service_name: (row.service_name || 'كشفية باطنية عامة').replace(/\./g, ''),
+      doctor_name: (row.doctor_name || 'د علي الحسان').replace(/[\.*#@$]/g, ''),
+      service_name: (row.service_name || 'كشفية باطنية عامة').replace(/[\.*#@$]/g, ''),
     };
   }
 
@@ -219,14 +219,14 @@ export class BookingService {
       booking_code: row.booking_code,
       booking_status: row.booking_status || 'confirmed',
       patient_name: row.patient_name || '',
-      doctor_name: (row.doctor_name || '').replace(/\./g, ''),
-      service_name: (row.service_name || '').replace(/\./g, ''),
+      doctor_name: (row.doctor_name || '').replace(/[\.*#@$]/g, ''),
+      service_name: (row.service_name || '').replace(/[\.*#@$]/g, ''),
       appointment_time: row.appointment_time || appointmentTime,
     };
   }
 
   /**
-   * 4️⃣ محرك المرحلة 2: مسار الحجز المتسلسل التفاعلي (Multi-Branch & Doctor Funnel)
+   * 4️⃣ محرك المرحلة 3: أنسنة النبرة العراقية البشرية وتصفير الإيموجيات والرموز 100%
    */
   async processIncomingWhatsAppMessage(
     clinicId: string,
@@ -235,7 +235,7 @@ export class BookingService {
   ): Promise<string> {
     const cleanText = (text || '').trim();
 
-    // 1. جلب سياق العيادة وجلسة المريض الحالية
+    // 1. جلب سياق العيادة وجلسة المريض
     const clinicCtx = await this.getClinicContext(clinicId);
     const session = await this.getOrCreatePatientSession(clinicId, phone, '');
 
@@ -243,7 +243,7 @@ export class BookingService {
     const primaryDoctorName = clinicCtx.doctors?.[0]?.name || 'د علي الحسان';
     const primaryServiceName = clinicCtx.services?.[0]?.name || 'كشفية باطنية عامة';
 
-    // 2. فحص ما إذا سأل المريض بدون تحديد الفرع وكان للعيادة أكثر من فرع
+    // 2. فحص الفروع إذا كان للعيادة أكثر من فرع
     if (clinicCtx.branches.length > 1 && !/فرع|عشار|مطيحة|بصرة|الرئيسي/i.test(cleanText) && session.last_state === 'INIT') {
       const branchNames = clinicCtx.branches.map((b) => b.name).join(' وفرع ');
       await this.updateSessionState(session.session_id, 'INIT');
@@ -255,21 +255,19 @@ export class BookingService {
     const selectedDoctorName = matchedDoctor?.name || primaryDoctorName;
 
     // 4. تحليل النيات
-    const isBookingRequest = /حجز|موعد|أحجز|احجز|اريد|اسنان|أسنان|باطنية|طبيب|دكتور|جلسة|سلام|مرحبا/i.test(cleanText);
+    const isBookingRequest = /حجز|موعد|أحجز|احجز|اريد|أريد|اسنان|أسنان|باطنية|طبيب|دكتور|جلسة|سلام|مرحبا/i.test(cleanText);
     const isConfirmation = /ثبت|تأكيد|اوكي|أوكي|تمام|اي|نعم|أكيد|ماشي/i.test(cleanText);
     const words = cleanText.split(/\s+/).filter(Boolean);
     const isFullName = words.length >= 2 && !isBookingRequest && !isConfirmation;
 
-    // 5. مسار الاستجابة وحالات آلة الحالة (last_state transitions)
-
-    // حالة A: المريض كتب "أوكي" أو "تمام" أو "ثبت" في مرحلة SLOT_PROPOSED لكن لم يكتب اسمه بعد
+    // حالة A: المريض كتب "أوكي" أو "تمام" أو "ثبت" لكن لم يكتب اسمه بعد
     if (isConfirmation && !isFullName && !session.patient_name) {
       await this.updateSessionState(session.session_id, 'SLOT_PROPOSED');
       return 'تدلل عيني اكتبلي اسمك الثنائي حتى نثبت الموعد ونطيك كود الحجز';
     }
 
     // حالة B: المريض أدخل اسمه أو أكد الحجز بالكامل (الانتقال لـ CONFIRMED)
-    if (isFullName || (isConfirmation && session.patient_name) || session.last_state === 'SLOT_PROPOSED' && isFullName) {
+    if (isFullName || (isConfirmation && session.patient_name) || (session.last_state === 'SLOT_PROPOSED' && isFullName)) {
       const patientName = isFullName ? cleanText : session.patient_name;
 
       try {
@@ -285,7 +283,7 @@ export class BookingService {
             slot.slot_time
           );
         } catch (bookingError: any) {
-          // 1️⃣ النقطة الأولى: اقتراح الموعد التالي تلقائياً عند تضارب الوقت
+          // 1️⃣ اقتراح الموعد التالي تلقائياً عند تضارب الوقت
           slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 3);
           booking = await this.createAppointmentBooking(
             clinicId,
@@ -307,7 +305,7 @@ export class BookingService {
           minute: '2-digit',
         });
 
-        // رد بشري نقي مستند للحقائق بدون أي علامات تنقيط
+        // رد بشري نقي 100% بدون أي إيموجي أو نجمة أو علامة تنقيط
         return `تدلل عيني تم تثبيت حجزك كود الحجز ${booking.booking_code} باسم ${patientName} عند ${selectedDoctorName} موعدك ${dateFormatted} ننتظرك بالعيادة`;
       } catch (err: any) {
         // اقتراح الموعد التالي بلباقة عند الانشغال التام
@@ -335,7 +333,7 @@ export class BookingService {
       // تحديث حالة الجلسة إلى SLOT_PROPOSED
       await this.updateSessionState(session.session_id, 'SLOT_PROPOSED');
 
-      // رد بشري مقتضب مستند للبيانات الحقيقية
+      // رد بشري مقتضب وخالي تماماً من الإيموجيات والماركدوان
       return `اهلاً بك عيني أقرب موعد متاح لـ ${slot.service_name || primaryServiceName} مع ${selectedDoctorName} هو ${formattedDate} إذا حاب تثبته دزلي اسمك الثنائي`;
     } catch (err: any) {
       return `اهلاً بك عيني دزلي اسمك المباشر وشحابه تحجز حتى اساعدك فوراً`;
