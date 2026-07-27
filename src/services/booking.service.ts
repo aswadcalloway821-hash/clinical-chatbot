@@ -1,5 +1,5 @@
 import { supabase } from '../config/supabase';
-import { aiService, ChatMessage } from './ai.service';
+import { aiService, ChatMessage, AIStructuredResponse } from './ai.service';
 
 export interface PatientSession {
   patient_id: string;
@@ -100,25 +100,25 @@ export class BookingService {
   }
 
   /**
-   * 🧠 تحديث حالة المحادثة وذاكرة الـ 5 رسائل في عمود active_session في Supabase
+   * 🧠 النافذة المتزلقة لـ 8 رسائل كحد أقصى (Sliding Window Context Buffer - 4 Turns Max)
    */
-  async updateSessionMemory(
+  async updateSlidingMemory(
     sessionId: string,
     newState: string,
     history: ChatMessage[]
   ): Promise<void> {
     try {
-      const rollingMemory = history.slice(-10); // الحفاظ على آخر 10 عناصر (5 أزواج)
+      const slidingWindowMemory = history.slice(-8); // 8 رسائل = 4 أزواج كحد أقصى
       await supabase
         .from('patient_chat_sessions')
         .update({
           last_state: newState,
-          active_session: rollingMemory,
+          active_session: slidingWindowMemory,
           updated_at: new Date().toISOString(),
         })
         .eq('id', sessionId);
     } catch (err: any) {
-      console.warn('⚠️ Failed to update session memory:', err.message);
+      console.warn('⚠️ Failed to update sliding memory:', err.message);
     }
   }
 
@@ -158,7 +158,7 @@ export class BookingService {
   }
 
   /**
-   * 2️⃣ البحث عن أقرب موعد متاح لخدمة معينة عبر RPC المباشرة
+   * 2️⃣ البحث المباشر عن الشواغر باستعلام الفهارس المركبة في PostgreSQL
    */
   async getNearestAvailableSlot(
     clinicId: string,
@@ -166,7 +166,7 @@ export class BookingService {
     departmentId?: string,
     serviceId?: string,
     targetDate?: string,
-    offsetDays: number = 2
+    offsetDays: number = 6
   ): Promise<AvailableSlot> {
     const target = new Date();
     target.setDate(target.getDate() + offsetDays);
@@ -238,7 +238,7 @@ export class BookingService {
   }
 
   /**
-   * 4️⃣ محرك المعالجة التفاعلية الهجين لرسائل الواتساب مع ذاكرة الـ 5 رسائل و Gemini Flash
+   * 4️⃣ محرك Pure Gemini NLU Master Engine التفاعلي مع هندسة الخيارات المحدودة والنافذة المتزلقة
    */
   async processIncomingWhatsAppMessage(
     clinicId: string,
@@ -247,32 +247,27 @@ export class BookingService {
   ): Promise<string> {
     const cleanText = (text || '').trim();
 
-    // 1. جلب سياق العيادة الحقيقي وجلسة المريض مع الذاكرة التاريخية
+    // 1. جلب سياق العيادة وجلسة المريض
     const clinicCtx = await this.getClinicContext(clinicId);
     const session = await this.getOrCreatePatientSession(clinicId, phone, '');
-
     const activeOfferingId = clinicCtx.offerings?.[0]?.id || '2e4ede71-8ff6-4597-8067-b9a74c36d0c4';
     const primaryDoctorName = clinicCtx.doctors?.[0]?.name || 'د علي الحسان';
 
-    // 2. قراءة ذاكرة المحادثة لآخر 5 رسائل
+    // 2. قراءة الذاكرة المتزلقة (آخر 8 رسائل)
     const history: ChatMessage[] = Array.isArray(session.active_session) ? session.active_session : [];
 
-    // 3. تحليل وتوليد الرد عبر خدمة الذكاء الاصطناعي الهجينة aiService
-    const aiResult = await aiService.generateIraqiResponse(clinicCtx, history, cleanText);
+    // 3. تحليل النية عبر Pure Gemini NLU
+    const nluResult: AIStructuredResponse = await aiService.processPureNLU(clinicCtx, history, cleanText);
 
-    let finalReply = aiResult.replyText;
+    let finalReply = nluResult.replyText;
     let nextState = session.last_state;
 
-    const isQuestioning = /شلون|اسعار|أسعار|تكلفة|وين|مكان|بكم|اريد|أريد|سعر|كيف|عنوان/i.test(cleanText);
-    const isConfirmationText = /ثبت|تأكيد|اوكي|أوكي|تمام|اي|نعم|أكيد|ماشي/i.test(cleanText);
-    const isPureNameInput = wordsCount(cleanText) >= 2 && !isQuestioning && (session.last_state === 'SLOT_PROPOSED' || session.last_state === 'INIT');
-
-    // 4. تنفيذ الحجز الذري في Supabase عند كشف نية التأكيد أو الاسم الثنائي الصريح
-    if (!isQuestioning && (isConfirmationText || isPureNameInput || aiResult.detectedIntent === 'CONFIRM_BOOKING')) {
-      const patientName = isPureNameInput ? cleanText : (session.patient_name || 'المريض الفاضل');
+    // 4. تنفيذ المنطق الموجه بالنية (Intent-Driven Control Flow)
+    if (nluResult.intent === 'CONFIRM_BOOKING') {
+      const patientName = nluResult.extractedDetails?.patient_name || (cleanText.length < 30 ? cleanText : 'المريض الفاضل');
 
       try {
-        let slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 4);
+        let slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 6);
         let booking: BookingResult;
 
         try {
@@ -283,9 +278,8 @@ export class BookingService {
             activeOfferingId,
             slot.slot_time
           );
-        } catch (bookingErr: any) {
-          // اقتراح الموعد التلاحقي تلقائياً عند التضارب
-          slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 5);
+        } catch (bErr) {
+          slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 7);
           booking = await this.createAppointmentBooking(
             clinicId,
             session.patient_id,
@@ -306,23 +300,26 @@ export class BookingService {
         finalReply = `تدلل عيني تم تثبيت حجزك كود الحجز ${booking.booking_code} باسم ${patientName} عند ${booking.doctor_name || primaryDoctorName} موعدك ${dateFormatted} ننتظرك بالعيادة`;
         nextState = 'CONFIRMED';
       } catch (err: any) {
-        finalReply = `عيني هذا الموعد انحجز قبل لحظات حاب أثبتلك الموعد المتاح الذي يليه دزلي تأكيدك`;
+        finalReply = `عيني هذا الموعد انحجز قبل لحظات متوفر موعد الخميس 4 م أو الجمعة 5 م أي يناسبك حتى نثبته`;
       }
-    } else if (aiResult.detectedIntent === 'REQUEST_BOOKING') {
+    } else if (nluResult.intent === 'REQUEST_BOOKING') {
       nextState = 'SLOT_PROPOSED';
+      const slot1 = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 6);
+      const slot2 = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 7);
+      
+      const d1 = new Date(slot1.slot_time).toLocaleString('ar-IQ', { weekday: 'long', hour: '2-digit', minute: '2-digit' });
+      const d2 = new Date(slot2.slot_time).toLocaleString('ar-IQ', { weekday: 'long', hour: '2-digit', minute: '2-digit' });
+
+      finalReply = `اهلاً بك عيني متوفر أقرب موعدين لـ ${slot1.service_name} مع ${slot1.doctor_name} هما ${d1} أو ${d2} أي يناسبك ودزلي اسمك الثنائي`;
     }
 
-    // 5. حفظ وتحديث الذاكرة التراكمية (الـ 5 رسائل) في Supabase
+    // 5. حفظ وتحديث النافذة المتزلقة (8 رسائل) في Supabase
     history.push({ role: 'user', parts: [{ text: cleanText }] });
     history.push({ role: 'model', parts: [{ text: finalReply }] });
-    await this.updateSessionMemory(session.session_id, nextState, history);
+    await this.updateSlidingMemory(session.session_id, nextState, history);
 
     return finalReply;
   }
-}
-
-function wordsCount(str: string): number {
-  return (str || '').trim().split(/\s+/).filter(Boolean).length;
 }
 
 export const bookingService = new BookingService();

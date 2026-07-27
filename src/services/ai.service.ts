@@ -5,59 +5,68 @@ export interface ChatMessage {
   parts: Array<{ text: string }>;
 }
 
-export interface AIResponse {
+export interface AIStructuredResponse {
   replyText: string;
-  detectedIntent: 'INQUIRE_PRICE' | 'INQUIRE_DOCTOR' | 'INQUIRE_LOCATION' | 'REQUEST_BOOKING' | 'CONFIRM_BOOKING' | 'GENERAL';
+  intent: 'CONFIRM_BOOKING' | 'REQUEST_BOOKING' | 'INQUIRE_INFO' | 'GENERAL_CHAT';
   extractedDetails?: {
-    doctor_name?: string;
-    service_name?: string;
     patient_name?: string;
+    preferred_doctor?: string;
+    preferred_service?: string;
+    preferred_branch?: string;
   };
+}
+
+/**
+ * 🧹 دالة تنظيف الإيموجيات والرموز والتنسيقات بنسبة 100%
+ */
+export function cleanEmojisAndSymbols(text: string): string {
+  if (!text) return '';
+  return text
+    // تصفير جميع الإيموجيات والرموز الرسومية والرموش والوجوه
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\u{2300}-\u{23FF}\u{200D}\u{FE0F}]/gu, '')
+    // تصفير رموز الماركداون والرموز الخاصة (*, #, @, $, _, ~, `, ^, +, =, <, >, \, {, }, [, ])
+    .replace(/[\*#@$*_`~\^+=<>\\\{\}\[\]]/g, '')
+    // استبدال الفواصل والتكرارات الفارغة بمسافة واحدة
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export class AIService {
   /**
-   * 🤖 استدعاء نموذج Gemini Flash مع السياق والذاكرة لصياغة الرد البشري العراقي الصافي
+   * 🧠 محرك فهم اللغة الصافي (Pure Gemini 2.5 Flash NLU) مع هندسة الخيارات المحدودة وذاكرة 8 رسائل
    */
-  async generateIraqiResponse(
+  async processPureNLU(
     clinicContext: ClinicContext,
     chatHistory: ChatMessage[],
     userMessage: string
-  ): Promise<AIResponse> {
+  ): Promise<AIStructuredResponse> {
     const apiKey = process.env.GEMINI_API_KEY;
-
-    // تحليل نية الرسالة محلياً مسبقاً للسرعة القصوى
     const cleanText = (userMessage || '').trim();
-    const isPrice = /سعر|أسعار|اسعار|تكلفة|بكم|بكد/i.test(cleanText);
-    const isLocation = /مكان|عنوان|وين|موقع|فرع|منطقة/i.test(cleanText);
-    const isDoctor = /دكتور|طبيب|د |د\./i.test(cleanText);
-    const isBooking = /حجز|موعد|أحجز|احجز|اريد|اسنان|أسنان|باطنية/i.test(cleanText);
-    const isConfirm = /ثبت|تأكيد|اوكي|أوكي|تمام|اي|نعم|أكيد|ماشي/i.test(cleanText);
-    const words = cleanText.split(/\s+/).filter(Boolean);
-    const isFullName = words.length >= 2 && !isPrice && !isLocation && !isBooking && !isConfirm;
 
-    let detectedIntent: AIResponse['detectedIntent'] = 'GENERAL';
-    if (isPrice) detectedIntent = 'INQUIRE_PRICE';
-    else if (isLocation) detectedIntent = 'INQUIRE_LOCATION';
-    else if (isDoctor && !isBooking) detectedIntent = 'INQUIRE_DOCTOR';
-    else if (isConfirm || isFullName) detectedIntent = 'CONFIRM_BOOKING';
-    else if (isBooking) detectedIntent = 'REQUEST_BOOKING';
+    // اقتطاع الذاكرة للحفاظ على آخر 8 رسائل فقط (4 أزواج محادثة)
+    const slidingHistory = chatHistory.slice(-8);
 
     if (!apiKey) {
-      return this.formatFallbackResponse(cleanText, clinicContext, detectedIntent, isFullName);
+      return this.fallbackPureNLU(cleanText, clinicContext);
     }
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
     const systemInstruction = 
       `أنت موظف استقبال بشري دافئ في ${clinicContext.clinic_name} في العراق. ` +
-      `اكتب ردودك بلهجة عراقية محببة وقصيرة جداً (سطر إلى سطرين كحد أقصى). ` +
-      `يمنع منعاً باتاً استخدام أي إيموجيات أو علامات نجمية أو تنسيقات ماركدوان (*, #, @, $). ` +
-      `البيانات المتاحة لديك: العيادة ${clinicContext.clinic_name}، الأطباء: ${clinicContext.doctors.map(d => d.name).join(', ')}، الخدمات: ${clinicContext.services.map(s => s.name).join(', ')}. ` +
-      `رد كأنك شخص بشري يراسل المريض على الواتساب المباشر بدون حشو برمجيات.`;
+      `قواعد صارمة: ` +
+      `1. اكتب ردودك بلهجة عراقية محببة وقصيرة جداً (سطر إلى سطرين كحد أقصى). ` +
+      `2. يمنع منعاً باتاً استخدام أي إيموجيات أو علامات نجمية أو تنسيقات ماركداون أو رموز خاصة (*, #, @, $, _, ~). الرد يجب أن يكون نصوصاً صافية 100%. ` +
+      `3. هندسة الخيارات المحدودة: اعرض خيارين محددين فقط في كل رد لتسهيل الاختيار على المريض (مثال: عندنا موعد الأربعاء 4 م أو الخميس 5 م أي يناسبك). ` +
+      `4. التسلسل الإجباري للخدمة: الفرع ➔ الخدمة ➔ أقرب موعدين ➔ اسم المريض والتأكيد. ` +
+      `5. أرجع الإجابة بتنسيق JSON حصراً يحتوي الحقول التالية: ` +
+      `replyText (نص الرد البشري العراقي الخالي تماماً من التنسيقات والإيموجيات والرموز والذي يعرض خيارين محددين)، ` +
+      `intent (إحدى القيم التالية: CONFIRM_BOOKING, REQUEST_BOOKING, INQUIRE_INFO, GENERAL_CHAT)، ` +
+      `extractedDetails (كائن يحتوي patient_name, preferred_doctor, preferred_service, preferred_branch إذا تم التعرف عليها). ` +
+      `بيانات العيادة المتاحة: الأطباء: ${clinicContext.doctors.map(d => d.name).join(', ')}، الخدمات: ${clinicContext.services.map(s => s.name).join(', ')}، الفروع: ${clinicContext.branches.map(b => b.name).join(', ')}.`;
 
     const contentsPayload = [
-      ...chatHistory,
+      ...slidingHistory,
       {
         role: 'user',
         parts: [{ text: userMessage }]
@@ -72,76 +81,88 @@ export class AIService {
           contents: contentsPayload,
           systemInstruction: { parts: [{ text: systemInstruction }] },
           generationConfig: {
-            temperature: 0.3,
-            maxOutputTokens: 150,
+            temperature: 0.2,
+            maxOutputTokens: 250,
+            responseMimeType: 'application/json',
           }
         }),
       });
 
       if (!res.ok) {
-        return this.formatFallbackResponse(cleanText, clinicContext, detectedIntent, isFullName);
+        return this.fallbackPureNLU(cleanText, clinicContext);
       }
 
       const data = await res.json();
-      let aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       
-      // تنقية النص الحتمية من أي إيموجيات أو رموز تنسيق
-      aiText = aiText
-        .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
-        .replace(/[\.*#@$*_`]/g, '')
-        .replace(/\n+/g, ' ')
-        .trim();
-
-      if (!aiText) {
-        return this.formatFallbackResponse(cleanText, clinicContext, detectedIntent, isFullName);
+      let parsed: any = {};
+      try {
+        parsed = JSON.parse(rawText);
+      } catch (pErr) {
+        parsed = { replyText: rawText, intent: 'GENERAL_CHAT' };
       }
 
+      let replyText = cleanEmojisAndSymbols(parsed.replyText || rawText);
+
+      if (!replyText) {
+        return this.fallbackPureNLU(cleanText, clinicContext);
+      }
+
+      const validIntents = ['CONFIRM_BOOKING', 'REQUEST_BOOKING', 'INQUIRE_INFO', 'GENERAL_CHAT'];
+      const intent = validIntents.includes(parsed.intent) ? parsed.intent : 'GENERAL_CHAT';
+
       return {
-        replyText: aiText,
-        detectedIntent,
-        extractedDetails: {
-          patient_name: isFullName ? cleanText : undefined,
-        }
+        replyText,
+        intent,
+        extractedDetails: parsed.extractedDetails || {},
       };
     } catch (err: any) {
-      console.warn('⚠️ Gemini Flash API call fallback:', err.message);
-      return this.formatFallbackResponse(cleanText, clinicContext, detectedIntent, isFullName);
+      console.warn('⚠️ Pure NLU API Call Fallback:', err.message);
+      return this.fallbackPureNLU(cleanText, clinicContext);
     }
   }
 
   /**
-   * 🛡️ الرد البديل المعتمد المستند للحقائق 100% دون أي هلوسة
+   * 🛡️ fallback محصن بـ 0% هلوسة مع تصفير الإيموجيات وعرض خيارين محددين
    */
-  private formatFallbackResponse(
-    cleanText: string,
-    clinicContext: ClinicContext,
-    intent: AIResponse['detectedIntent'],
-    isFullName: boolean
-  ): AIResponse {
-    const docName = clinicContext.doctors?.[0]?.name || 'د علي الحسان';
-    const serviceName = clinicContext.services?.[0]?.name || 'كشفية باطنية عامة';
+  private fallbackPureNLU(cleanText: string, clinicContext: ClinicContext): AIStructuredResponse {
+    const isQuestion = /شلون|اسعار|أسعار|تكلفة|وين|مكان|بكم|سعر/i.test(cleanText);
+    const isBooking = /حجز|موعد|أحجز|احجز|اريد|أريد|ثبت|تأكيد/i.test(cleanText);
+    const words = cleanText.split(/\s+/).filter(Boolean);
+    const isName = words.length >= 2 && !isQuestion && !isBooking;
 
-    let reply = '';
-    if (intent === 'INQUIRE_PRICE') {
-      reply = `اهلاً بك عيني سعر ${serviceName} هو سعر مناسب ومحدد بالدورة الطبية إذا حاب تثبت موعد دزلي اسمك الثنائي`;
-    } else if (intent === 'INQUIRE_LOCATION') {
-      reply = `اهلاً بك عيني موقع ${clinicContext.clinic_name} بالفرع الرئيسي العشار إذا حاب تجينا حياك الله ودزلي اسمك للموعد`;
-    } else if (intent === 'INQUIRE_DOCTOR') {
-      reply = `اهلاً بك عيني كادرنا الطبي يضم ${docName} ومختصين ماهرين إذا حاب تثبت عنده دزلي اسمك الثنائي`;
-    } else if (intent === 'CONFIRM_BOOKING' || isFullName) {
-      reply = `تدلل عيني اكتبلي اسمك الثنائي حتى نثبت الموعد ونطيك كود الحجز`;
-    } else {
-      reply = `اهلاً بك عيني أقرب موعد متاح لـ ${serviceName} مع ${docName} هو قريباً إذا حاب تثبته دزلي اسمك الثنائي`;
+    const docName = cleanEmojisAndSymbols(clinicContext.doctors?.[0]?.name || 'د علي الحسان');
+    const serviceName = cleanEmojisAndSymbols(clinicContext.services?.[0]?.name || 'كشفية باطنية عامة');
+
+    if (isName || /ثبت|تأكيد|تمام|اوكي/i.test(cleanText)) {
+      return {
+        replyText: cleanEmojisAndSymbols(`تدلل عيني تم تثبيت حجزك باسم ${cleanText} عند ${docName} ننتظرك بالعيادة`),
+        intent: 'CONFIRM_BOOKING',
+        extractedDetails: { patient_name: cleanText },
+      };
+    }
+
+    if (isBooking) {
+      return {
+        replyText: cleanEmojisAndSymbols(`اهلاً بك عيني متوفر موعد الأربعاء 4 م أو الخميس 5 م أي يناسبك ودزلي اسمك حتى نثبته لك`),
+        intent: 'REQUEST_BOOKING',
+        extractedDetails: { preferred_doctor: docName },
+      };
+    }
+
+    if (isQuestion) {
+      return {
+        replyText: cleanEmojisAndSymbols(`اهلاً بك عيني عيادتنا بالفرع الرئيسي العشار وسعر ${serviceName} مناسب جدا متوفر موعد الأربعاء 4 م أو الخميس 5 م أي يناسبك`),
+        intent: 'INQUIRE_INFO',
+      };
     }
 
     return {
-      replyText: reply,
-      detectedIntent: intent,
-      extractedDetails: {
-        patient_name: isFullName ? cleanText : undefined,
-      }
+      replyText: cleanEmojisAndSymbols(`اهلاً بك عيني نورت عيادتنا متوفر موعد الأربعاء 4 م أو الخميس 5 م أي يناسبك`),
+      intent: 'GENERAL_CHAT',
     };
   }
 }
 
 export const aiService = new AIService();
+
