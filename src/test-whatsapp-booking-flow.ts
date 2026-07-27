@@ -1,28 +1,25 @@
 import { bookingService } from './services/booking.service';
 
-async function testFullWhatsAppBookingFlow() {
-  console.log('🧪 Starting Full Interactive WhatsApp Booking Flow Test...\n');
+async function testFlexibleIraqiBookingEngine() {
+  console.log('🧪 Testing Flexible Friendly Iraqi Conversational Engine (Zero Punctuation / Pure Human Style)...\n');
 
   const clinicId = '11111111-1111-1111-1111-111111111111';
-  const testPhone = '07799887766';
+  const testPhone = '07700112233';
 
   // 1️⃣ Turn 1: Patient asks to book
-  console.log('💬 Turn 1: Patient sends -> "السلام عليكم أريد أحجز موعد أسنان"');
-  const reply1 = await bookingService.processIncomingWhatsAppMessage(
-    clinicId,
-    testPhone,
-    'السلام عليكم أريد أحجز موعد أسنان'
-  );
+  console.log('💬 Turn 1: Patient sends -> "سلام عليكم اريد احجز"');
+  const reply1 = await bookingService.processIncomingWhatsAppMessage(clinicId, testPhone, 'سلام عليكم اريد احجز');
   console.log('🤖 Bot Reply 1:\n' + reply1 + '\n---\n');
 
-  // 2️⃣ Turn 2: Patient confirms and provides full name
-  console.log('💬 Turn 2: Patient sends -> "أحمد علي المحمداوي - تمام ثبت الموعد"');
-  const reply2 = await bookingService.processIncomingWhatsAppMessage(
-    clinicId,
-    testPhone,
-    'أحمد علي المحمداوي - تمام ثبت الموعد'
-  );
-  console.log('🎉 Bot Reply 2 (Confirmed Booking):\n' + reply2 + '\n');
+  // 2️⃣ Turn 2: Short answer ("أوكي")
+  console.log('💬 Turn 2: Patient sends -> "أوكي"');
+  const reply2 = await bookingService.processIncomingWhatsAppMessage(clinicId, testPhone, 'أوكي');
+  console.log('🤖 Bot Reply 2:\n' + reply2 + '\n---\n');
+
+  // 3️⃣ Turn 3: Full Name ("حيدر كاظم المالكي")
+  console.log('💬 Turn 3: Patient sends -> "حيدر كاظم المالكي"');
+  const reply3 = await bookingService.processIncomingWhatsAppMessage(clinicId, testPhone, 'حيدر كاظم المالكي');
+  console.log('🎉 Bot Reply 3 (Confirmed Booking):\n' + reply3 + '\n');
 }
 
-testFullWhatsAppBookingFlow().catch(console.error);
+testFlexibleIraqiBookingEngine().catch(console.error);

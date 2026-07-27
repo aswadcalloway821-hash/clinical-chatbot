@@ -69,10 +69,11 @@ export class BookingService {
     branchId?: string,
     departmentId?: string,
     serviceId?: string,
-    targetDate?: string
+    targetDate?: string,
+    offsetDays: number = 2
   ): Promise<AvailableSlot> {
     const target = new Date();
-    target.setDate(target.getDate() + 2); // الانتقال لليوم التالي الشاغر حتماً
+    target.setDate(target.getDate() + offsetDays);
     const defaultDate = target.toISOString().split('T')[0];
 
     const { data, error } = await supabase.rpc('get_nearest_available_slot', {
@@ -87,7 +88,7 @@ export class BookingService {
       return {
         slot_time: `${defaultDate}T16:00:00Z`,
         doctor_id: '55555555-1111-1111-1111-111111111111',
-        doctor_name: 'د. علي الحسان',
+        doctor_name: 'د علي الحسان',
         service_name: 'كشفية باطنية عامة',
       };
     }
@@ -96,8 +97,8 @@ export class BookingService {
     return {
       slot_time: row.slot_time || `${defaultDate}T16:00:00Z`,
       doctor_id: row.doctor_id || '55555555-1111-1111-1111-111111111111',
-      doctor_name: row.doctor_name || 'د. علي الحسان',
-      service_name: row.service_name || 'كشفية باطنية عامة',
+      doctor_name: (row.doctor_name || 'د علي الحسان').replace(/\./g, ''),
+      service_name: (row.service_name || 'كشفية باطنية عامة').replace(/\./g, ''),
     };
   }
 
@@ -121,7 +122,7 @@ export class BookingService {
 
     if (error) {
       console.error('❌ Supabase RPC create_appointment_booking Error:', error);
-      throw new Error(`Failed to create appointment booking: ${error.message}`);
+      throw new Error(error.message || 'Already booked');
     }
 
     if (!data || data.length === 0) {
@@ -134,14 +135,14 @@ export class BookingService {
       booking_code: row.booking_code,
       booking_status: row.booking_status || 'confirmed',
       patient_name: row.patient_name || '',
-      doctor_name: row.doctor_name || '',
-      service_name: row.service_name || '',
+      doctor_name: (row.doctor_name || '').replace(/\./g, ''),
+      service_name: (row.service_name || '').replace(/\./g, ''),
       appointment_time: row.appointment_time || appointmentTime,
     };
   }
 
   /**
-   * 4️⃣ محرك المعالجة التفاعلية الذكية لرسائل الواتساب
+   * 4️⃣ محرك المعالجة التفاعلية البشري المالي باللهجة العراقية الخالصة وبدون أي علامات تنقيط
    */
   async processIncomingWhatsAppMessage(
     clinicId: string,
@@ -154,43 +155,46 @@ export class BookingService {
     // 1. جلب جلسة المريض
     const session = await this.getOrCreatePatientSession(clinicId, phone, '');
 
-    // 2. فحص النية واختيار الاستجابة
-    const isBookingRequest = /حجز|موعد|أحجز|اريد|أسنان|باطنية|طبيب|جلسة|سلام|مرحبا/i.test(cleanText);
-    const isConfirmation = /ثبت|تأكيد|اوكي|تمام|اي|نعم|أكيد|ماشي/i.test(cleanText);
-    const words = cleanText.split(/\s+/);
-    const isFullName = words.length >= 2 && !isBookingRequest;
+    // 2. تحليل النيات
+    const isBookingRequest = /حجز|موعد|أحجز|احجز|اريد|اسنان|أسنان|باطنية|طبيب|دكتور|جلسة|سلام|مرحبا/i.test(cleanText);
+    const isConfirmation = /ثبت|تأكيد|اوكي|أوكي|تمام|اي|نعم|أكيد|ماشي/i.test(cleanText);
+    const words = cleanText.split(/\s+/).filter(Boolean);
+    const isFullName = words.length >= 2 && !isBookingRequest && !isConfirmation;
 
-    if (isConfirmation || isFullName) {
-      // إكمال الحجز وتأكيده
+    // حالة 1: المريض كتب "أوكي" أو "تمام" أو "ثبت" لكن لم يكتب اسمه بعد
+    if (isConfirmation && !isFullName && !session.patient_name) {
+      return 'تدلل عيني اكتبلي اسمك الثنائي حتى نثبت الموعد ونطيك كود الحجز';
+    }
+
+    // حالة 2: المريض أدخل اسمه أو أكد الحجز بالكامل
+    if (isFullName || (isConfirmation && session.patient_name)) {
+      const patientName = isFullName ? cleanText : session.patient_name;
+
       try {
-        const slot = await this.getNearestAvailableSlot(clinicId);
-        const booking = await this.createAppointmentBooking(
-          clinicId,
-          session.patient_id,
-          session.session_id,
-          defaultOfferingId,
-          slot.slot_time
-        );
+        let slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 2);
+        
+        let booking: BookingResult;
+        try {
+          booking = await this.createAppointmentBooking(
+            clinicId,
+            session.patient_id,
+            session.session_id,
+            defaultOfferingId,
+            slot.slot_time
+          );
+        } catch (bookingError: any) {
+          // 1️⃣ النقطة الأولى: اقتراح الموعد التالي تلقائياً عند تضارب الوقت
+          slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 3);
+          booking = await this.createAppointmentBooking(
+            clinicId,
+            session.patient_id,
+            session.session_id,
+            defaultOfferingId,
+            slot.slot_time
+          );
+        }
 
-        const patientDisplayName = isFullName ? cleanText : session.patient_name || 'المريض الفاضل';
-
-        return (
-          `تم تثبيت حجزك بنجاح عيني 🌟!\n\n` +
-          `📋 كود الحجز: ${booking.booking_code}\n` +
-          `👤 الاسم: ${patientDisplayName}\n` +
-          `👨‍⚕️ الطبيب: ${booking.doctor_name}\n` +
-          `🩺 الخدمة: ${booking.service_name}\n` +
-          `📅 التوقيت: ${new Date(booking.appointment_time).toLocaleString('ar-IQ')}\n\n` +
-          `ننتظرك في العيادة بموعدك المحدد 🏥.`
-        );
-      } catch (err: any) {
-        return `عيني، حدثت مشكلة أثناء تأكيد الحجز: ${err.message}. يرجى محاولة التواصل معنا مجدداً.`;
-      }
-    } else {
-      // اقتراح أقرب موعد متاح
-      try {
-        const slot = await this.getNearestAvailableSlot(clinicId);
-        const formattedDate = new Date(slot.slot_time).toLocaleString('ar-IQ', {
+        const dateFormatted = new Date(booking.appointment_time).toLocaleString('ar-IQ', {
           weekday: 'long',
           month: 'numeric',
           day: 'numeric',
@@ -198,15 +202,35 @@ export class BookingService {
           minute: '2-digit',
         });
 
-        return (
-          `أهلاً بك في عيادة سجل 🏥!\n\n` +
-          `أقرب موعد متاح لـ (${slot.service_name}) مع ${slot.doctor_name} هو:\n` +
-          `📅 ${formattedDate}\n\n` +
-          `إذا حاب تثبت الموعد، يرجى الرد باسمك الثنائي لإنشاء كود الحجز فوراً ✨.`
-        );
+        // رد بشري نقي بدون أي علامات تنقيط أو رموز نجمة
+        return `تدلل عيني تم تثبيت حجزك كود الحجز ${booking.booking_code} باسم ${patientName} عند ${booking.doctor_name} موعدك ${dateFormatted} ننتظرك بالعيادة`;
       } catch (err: any) {
-        return `أهلاً بك عيني 🏥! تم استلام رسالتك: "${cleanText}". كيف يمكننا مساعدتك اليوم؟`;
+        // اقتراح الموعد التالي بلباقة عند الانشغال التام
+        const nextSlot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 3);
+        const nextDateFormatted = new Date(nextSlot.slot_time).toLocaleString('ar-IQ', {
+          weekday: 'long',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        return `عيني هذا الموعد انحجز قبل لحظات أقرب موعد متاح بعده هو ${nextDateFormatted} حاب أثبته لك`;
       }
+    }
+
+    // حالة 3: استفسار عن موعد جديد
+    try {
+      const slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 2);
+      const formattedDate = new Date(slot.slot_time).toLocaleString('ar-IQ', {
+        weekday: 'long',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+
+      // رد بشري قصير ومباشر باللهجة العراقية بدون علامات تنقيط
+      return `اهلاً بك عيني أقرب موعد متاح لـ ${slot.service_name} مع ${slot.doctor_name} هو ${formattedDate} إذا حاب تثبته دزلي اسمك الثنائي`;
+    } catch (err: any) {
+      return `اهلاً بك عيني دزلي اسمك المباشر وشحابه تحجز حتى اساعدك فوراً`;
     }
   }
 }
