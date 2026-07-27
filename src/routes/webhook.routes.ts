@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { whatsAppService } from '../services/whatsapp.service';
+import { bookingService } from '../services/booking.service';
 
 const router = Router();
+const DEFAULT_CLINIC_ID = '11111111-1111-1111-1111-111111111111'; // عيادة د. علي التخصصية
 
 /**
  * 1️⃣ مسار التحقق من Meta (GET /api/webhook/whatsapp)
- * تستدعيه شركة Meta للتحقق من ملكية الـ Webhook عند ربط التطبيق
  */
 router.get('/whatsapp', (req: any, res: any) => {
   const mode = req.query['hub.mode'];
@@ -28,8 +29,7 @@ router.get('/whatsapp', (req: any, res: any) => {
 });
 
 /**
- * 2️⃣ مسار استقبال رسائل المرضى والرد التلقائي (POST /api/webhook/whatsapp)
- * يستقبل رسائل المرضى الصادرة حياً من الواتساب ويرسل الرد التلقائي
+ * 2️⃣ مسار استقبال رسائل المرضى والرد التلقائي والحجز الآلي (POST /api/webhook/whatsapp)
  */
 router.post('/whatsapp', async (req: any, res: any) => {
   try {
@@ -43,11 +43,15 @@ router.post('/whatsapp', async (req: any, res: any) => {
 
       console.log(`💬 Incoming WhatsApp Message from [${fromPhone}]: "${textBody}"`);
 
-      // إرسال الرد التلقائي الصادر عبر Meta Cloud API
-      await whatsAppService.sendTextMessage(
+      // معالجة الرسالة وحسب نية المريض عبر خدمة الحجز الآلية
+      const replyMessage = await bookingService.processIncomingWhatsAppMessage(
+        DEFAULT_CLINIC_ID,
         fromPhone,
-        `أهلاً بك في عيادة سجل الطبي 🏥! تم استلام رسالتك: "${textBody}" وسنقوم بتأكيد حجزك فوراً.`
+        textBody
       );
+
+      // إرسال الاستجابة الصادرة حياً لصفحة الواتساب الخاصة بالمريض
+      await whatsAppService.sendTextMessage(fromPhone, replyMessage);
     }
 
     // إرجاع استجابة فورية 200 OK لـ Meta خلال أقل من 3 ثوانٍ

@@ -11,7 +11,7 @@ router.post('/session', async (req: any, res: any) => {
   try {
     const { clinic_id, patient_phone, patient_name } = req.body || {};
 
-    if (!clinic_id || !patient_phone || !patient_name) {
+    if (!clinic_id || !patient_phone) {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields',
@@ -42,21 +42,20 @@ router.post('/session', async (req: any, res: any) => {
  */
 router.get('/slots', async (req: any, res: any) => {
   try {
-    const { clinic_id, branch_id, department_id, service_id, target_date } = req.query || {};
+    const { clinic_id, clinic_offering_id } = req.query || {};
 
-    if (!clinic_id || !branch_id || !department_id || !service_id || !target_date) {
+    if (!clinic_id) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required query parameters',
+        error: 'Missing required clinic_id query parameter',
       });
     }
 
+    const defaultOfferingId = (clinic_offering_id as string) || '2e4ede71-8ff6-4597-8067-b9a74c36d0c4';
+
     const slots = await bookingService.getNearestAvailableSlot(
       clinic_id as string,
-      branch_id as string,
-      department_id as string,
-      service_id as string,
-      target_date as string
+      defaultOfferingId
     );
 
     return res.status(200).json({
