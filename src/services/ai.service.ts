@@ -18,7 +18,8 @@ export interface AIStructuredResponse {
 
 export class AIService {
   /**
-   * 🧠 محرك فهم اللغة الصافي (Pure Gemini Flash NLU) مع هندسة الخيارات المحدودة
+   * 🧠 محرك فهم اللغة الصافي (Pure Gemini Flash Lite NLU) مع نموذج gemini-2.5-flash-lite
+   * السرعة الذكاء الفائق والتكلفة الأقل 100%
    */
   async processPureNLU(
     clinicContext: ClinicContext,
@@ -28,15 +29,15 @@ export class AIService {
     const apiKey = process.env.GEMINI_API_KEY;
     const cleanText = (userMessage || '').trim();
 
-    // اقتطاع الذاكرة للحفاظ على آخر 8 رسائل فقط (4 أزواج محادثة)
+    // اقتصار الذاكرة التراكمية على آخر 8 رسائل فقط (4 أزواج محادثة)
     const slidingHistory = chatHistory.slice(-8);
 
     if (!apiKey) {
       return this.fallbackPureNLU(cleanText, clinicContext);
     }
 
-    // نقطة النهاية الرسمية لنموذج Gemini Flash السريع والسباق
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    // اعتماد نموذج gemini-2.5-flash-lite الصريح بناءً على توجيهات المستخدم
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
 
     const systemInstruction = 
       `أنت موظف استقبال بشري دافئ في ${clinicContext.clinic_name} في العراق. ` +
@@ -107,7 +108,7 @@ export class AIService {
         extractedDetails: parsed.extractedDetails || {},
       };
     } catch (err: any) {
-      console.warn('⚠️ Pure NLU API Call Fallback:', err.message);
+      console.warn('⚠️ Gemini Flash Lite API Call Fallback:', err.message);
       return this.fallbackPureNLU(cleanText, clinicContext);
     }
   }
