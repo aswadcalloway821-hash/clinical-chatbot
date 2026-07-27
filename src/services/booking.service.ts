@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase';
+import { aiService, ChatMessage } from './ai.service';
 
 export interface PatientSession {
   patient_id: string;
@@ -7,6 +8,7 @@ export interface PatientSession {
   session_id: string;
   last_state: string;
   is_new_patient: boolean;
+  active_session: ChatMessage[];
 }
 
 export interface AvailableSlot {
@@ -98,16 +100,25 @@ export class BookingService {
   }
 
   /**
-   * تحديث حالة المحادثة last_state في جدول patient_chat_sessions
+   * 🧠 تحديث حالة المحادثة وذاكرة الـ 5 رسائل في عمود active_session في Supabase
    */
-  async updateSessionState(sessionId: string, newState: string): Promise<void> {
+  async updateSessionMemory(
+    sessionId: string,
+    newState: string,
+    history: ChatMessage[]
+  ): Promise<void> {
     try {
+      const rollingMemory = history.slice(-10); // الحفاظ على آخر 10 عناصر (5 أزواج)
       await supabase
         .from('patient_chat_sessions')
-        .update({ last_state: newState, updated_at: new Date().toISOString() })
+        .update({
+          last_state: newState,
+          active_session: rollingMemory,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', sessionId);
     } catch (err: any) {
-      console.warn('⚠️ Failed to update session state:', err.message);
+      console.warn('⚠️ Failed to update session memory:', err.message);
     }
   }
 
@@ -142,6 +153,7 @@ export class BookingService {
       session_id: row.session_id,
       last_state: row.last_state || 'INIT',
       is_new_patient: row.is_new_patient ?? true,
+      active_session: Array.isArray(row.active_session) ? row.active_session : [],
     };
   }
 
@@ -226,7 +238,7 @@ export class BookingService {
   }
 
   /**
-   * 4️⃣ محرك المرحلة 3: أنسنة النبرة العراقية البشرية وتصفير الإيموجيات والرموز 100%
+   * 4️⃣ محرك المعالجة التفاعلية الهجين لرسائل الواتساب مع ذاكرة الـ 5 رسائل و Gemini Flash
    */
   async processIncomingWhatsAppMessage(
     clinicId: string,
@@ -235,45 +247,34 @@ export class BookingService {
   ): Promise<string> {
     const cleanText = (text || '').trim();
 
-    // 1. جلب سياق العيادة وجلسة المريض
+    // 1. جلب سياق العيادة الحقيقي وجلسة المريض مع الذاكرة التاريخية
     const clinicCtx = await this.getClinicContext(clinicId);
     const session = await this.getOrCreatePatientSession(clinicId, phone, '');
 
     const activeOfferingId = clinicCtx.offerings?.[0]?.id || '2e4ede71-8ff6-4597-8067-b9a74c36d0c4';
     const primaryDoctorName = clinicCtx.doctors?.[0]?.name || 'د علي الحسان';
-    const primaryServiceName = clinicCtx.services?.[0]?.name || 'كشفية باطنية عامة';
 
-    // 2. فحص الفروع إذا كان للعيادة أكثر من فرع
-    if (clinicCtx.branches.length > 1 && !/فرع|عشار|مطيحة|بصرة|الرئيسي/i.test(cleanText) && session.last_state === 'INIT') {
-      const branchNames = clinicCtx.branches.map((b) => b.name).join(' وفرع ');
-      await this.updateSessionState(session.session_id, 'INIT');
-      return `عيادتنا متوفرة بفرع ${branchNames} أي فرع يناسبك عيني حتى نشوفلك الأوقات الشاغرة`;
-    }
+    // 2. قراءة ذاكرة المحادثة لآخر 5 رسائل
+    const history: ChatMessage[] = Array.isArray(session.active_session) ? session.active_session : [];
 
-    // 3. مطابقة اسم الدكتور عند التحديد الصريح
-    let matchedDoctor = clinicCtx.doctors.find((d) => cleanText.includes(d.name) || cleanText.includes(d.name.replace('د ', '')));
-    const selectedDoctorName = matchedDoctor?.name || primaryDoctorName;
+    // 3. تحليل وتوليد الرد عبر خدمة الذكاء الاصطناعي الهجينة aiService
+    const aiResult = await aiService.generateIraqiResponse(clinicCtx, history, cleanText);
 
-    // 4. تحليل النيات
-    const isBookingRequest = /حجز|موعد|أحجز|احجز|اريد|أريد|اسنان|أسنان|باطنية|طبيب|دكتور|جلسة|سلام|مرحبا/i.test(cleanText);
-    const isConfirmation = /ثبت|تأكيد|اوكي|أوكي|تمام|اي|نعم|أكيد|ماشي/i.test(cleanText);
-    const words = cleanText.split(/\s+/).filter(Boolean);
-    const isFullName = words.length >= 2 && !isBookingRequest && !isConfirmation;
+    let finalReply = aiResult.replyText;
+    let nextState = session.last_state;
 
-    // حالة A: المريض كتب "أوكي" أو "تمام" أو "ثبت" لكن لم يكتب اسمه بعد
-    if (isConfirmation && !isFullName && !session.patient_name) {
-      await this.updateSessionState(session.session_id, 'SLOT_PROPOSED');
-      return 'تدلل عيني اكتبلي اسمك الثنائي حتى نثبت الموعد ونطيك كود الحجز';
-    }
+    const isQuestioning = /شلون|اسعار|أسعار|تكلفة|وين|مكان|بكم|اريد|أريد|سعر|كيف|عنوان/i.test(cleanText);
+    const isConfirmationText = /ثبت|تأكيد|اوكي|أوكي|تمام|اي|نعم|أكيد|ماشي/i.test(cleanText);
+    const isPureNameInput = wordsCount(cleanText) >= 2 && !isQuestioning && (session.last_state === 'SLOT_PROPOSED' || session.last_state === 'INIT');
 
-    // حالة B: المريض أدخل اسمه أو أكد الحجز بالكامل (الانتقال لـ CONFIRMED)
-    if (isFullName || (isConfirmation && session.patient_name) || (session.last_state === 'SLOT_PROPOSED' && isFullName)) {
-      const patientName = isFullName ? cleanText : session.patient_name;
+    // 4. تنفيذ الحجز الذري في Supabase عند كشف نية التأكيد أو الاسم الثنائي الصريح
+    if (!isQuestioning && (isConfirmationText || isPureNameInput || aiResult.detectedIntent === 'CONFIRM_BOOKING')) {
+      const patientName = isPureNameInput ? cleanText : (session.patient_name || 'المريض الفاضل');
 
       try {
-        let slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 2);
-
+        let slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 4);
         let booking: BookingResult;
+
         try {
           booking = await this.createAppointmentBooking(
             clinicId,
@@ -282,9 +283,9 @@ export class BookingService {
             activeOfferingId,
             slot.slot_time
           );
-        } catch (bookingError: any) {
-          // 1️⃣ اقتراح الموعد التالي تلقائياً عند تضارب الوقت
-          slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 3);
+        } catch (bookingErr: any) {
+          // اقتراح الموعد التلاحقي تلقائياً عند التضارب
+          slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 5);
           booking = await this.createAppointmentBooking(
             clinicId,
             session.patient_id,
@@ -294,9 +295,6 @@ export class BookingService {
           );
         }
 
-        // تحديث حالة الجلسة إلى CONFIRMED
-        await this.updateSessionState(session.session_id, 'CONFIRMED');
-
         const dateFormatted = new Date(booking.appointment_time).toLocaleString('ar-IQ', {
           weekday: 'long',
           month: 'numeric',
@@ -305,40 +303,26 @@ export class BookingService {
           minute: '2-digit',
         });
 
-        // رد بشري نقي 100% بدون أي إيموجي أو نجمة أو علامة تنقيط
-        return `تدلل عيني تم تثبيت حجزك كود الحجز ${booking.booking_code} باسم ${patientName} عند ${selectedDoctorName} موعدك ${dateFormatted} ننتظرك بالعيادة`;
+        finalReply = `تدلل عيني تم تثبيت حجزك كود الحجز ${booking.booking_code} باسم ${patientName} عند ${booking.doctor_name || primaryDoctorName} موعدك ${dateFormatted} ننتظرك بالعيادة`;
+        nextState = 'CONFIRMED';
       } catch (err: any) {
-        // اقتراح الموعد التالي بلباقة عند الانشغال التام
-        const nextSlot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 3);
-        const nextDateFormatted = new Date(nextSlot.slot_time).toLocaleString('ar-IQ', {
-          weekday: 'long',
-          hour: '2-digit',
-          minute: '2-digit',
-        });
-        return `عيني هذا الموعد انحجز قبل لحظات أقرب موعد متاح بعده هو ${nextDateFormatted} حاب أثبته لك`;
+        finalReply = `عيني هذا الموعد انحجز قبل لحظات حاب أثبتلك الموعد المتاح الذي يليه دزلي تأكيدك`;
       }
+    } else if (aiResult.detectedIntent === 'REQUEST_BOOKING') {
+      nextState = 'SLOT_PROPOSED';
     }
 
-    // حالة C: استفسار عن موعد جديد أو طبيب معين (الانتقال لـ SLOT_PROPOSED)
-    try {
-      const slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 2);
-      const formattedDate = new Date(slot.slot_time).toLocaleString('ar-IQ', {
-        weekday: 'long',
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+    // 5. حفظ وتحديث الذاكرة التراكمية (الـ 5 رسائل) في Supabase
+    history.push({ role: 'user', parts: [{ text: cleanText }] });
+    history.push({ role: 'model', parts: [{ text: finalReply }] });
+    await this.updateSessionMemory(session.session_id, nextState, history);
 
-      // تحديث حالة الجلسة إلى SLOT_PROPOSED
-      await this.updateSessionState(session.session_id, 'SLOT_PROPOSED');
-
-      // رد بشري مقتضب وخالي تماماً من الإيموجيات والماركدوان
-      return `اهلاً بك عيني أقرب موعد متاح لـ ${slot.service_name || primaryServiceName} مع ${selectedDoctorName} هو ${formattedDate} إذا حاب تثبته دزلي اسمك الثنائي`;
-    } catch (err: any) {
-      return `اهلاً بك عيني دزلي اسمك المباشر وشحابه تحجز حتى اساعدك فوراً`;
-    }
+    return finalReply;
   }
+}
+
+function wordsCount(str: string): number {
+  return (str || '').trim().split(/\s+/).filter(Boolean).length;
 }
 
 export const bookingService = new BookingService();
