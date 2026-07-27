@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sijil 2.0 - Live Testing Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Outfit:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-card: #151c2e;
+      --bg-input: #1e293b;
+      --border-color: #334155;
+      --primary: #047857;
+      --primary-hover: #059669;
+      --accent: #f59e0b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --danger: #ef4444;
+      --success: #10b981;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      padding: 24px;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 32px;
+    }
+
+    .logo-area {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-badge {
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      color: white;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 900;
+      font-size: 24px;
+      padding: 8px 16px;
+      border-radius: 12px;
+      box-shadow: 0 4px 14px rgba(4, 120, 87, 0.4);
+    }
+
+    .logo-title {
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+    }
+
+    .logo-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 700;
+      font-size: 14px;
+      background-color: rgba(148, 163, 184, 0.1);
+      border: 1px solid var(--border-color);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background-color: var(--text-muted);
+    }
+
+    .status-pill.online .status-dot {
+      background-color: var(--success);
+      box-shadow: 0 0 10px var(--success);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 24px;
+    }
+
+    .card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .card:hover {
+      border-color: rgba(4, 120, 87, 0.5);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .step-number {
+      background: rgba(4, 120, 87, 0.2);
+      color: var(--primary-hover);
+      border: 1px solid var(--primary);
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 16px;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    input, select {
+      width: 100%;
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    input:focus {
+      border-color: var(--primary-hover);
+    }
+
+    button {
+      width: 100%;
+      background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 18px;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: opacity 0.2s ease, transform 0.1s ease;
+    }
+
+    button:hover {
+      opacity: 0.95;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    button.btn-accent {
+      background: linear-gradient(135deg, #d97706, var(--accent));
+      color: #0b0f19;
+    }
+
+    .output-box {
+      margin-top: 16px;
+      background-color: #080c14;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 14px;
+      font-family: 'Outfit', monospace;
+      font-size: 13px;
+      color: #38bdf8;
+      max-height: 220px;
+      overflow-y: auto;
+      direction: ltr;
+      text-align: left;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .output-box.error {
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .output-box.success {
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-auto {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--accent);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo-area">
+        <div class="logo-badge">SIJIL 2.0</div>
+        <div>
+          <div class="logo-title">Sijil 2.0 - Live Testing Dashboard</div>
+          <div class="logo-subtitle">لوحة الفحص والتجربة المباشرة لنظام سجل الحجوزات الطبية</div>
+        </div>
+      </div>
+      <div id="healthStatus" class="status-pill">
+        <span class="status-dot"></span>
+        <span id="healthText">جاري الفحص...</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- 1️⃣ Health Check Section -->
+      <div class="card">
+        <div class="card-header">
+          <div class="step-number">1</div>
+          <div class="card-title">فحص صحة السيرفر (Health Check)</div>
+        </div>
+        <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">
+          يرسل طلب GET /health للتأكد من استجابة خادم Express والاتصال المباشر.
+        </p>
+        <button onclick="checkHealth()">🔍 فحص السيرفر الآن</button>
+        <div id="healthOutput" class="output-box">انقر على الزر لتشغيل الفحص...</div>
+      </div>
+
+      <!-- 2️⃣ Patient Session Section -->
+      <div class="card">
+        <div class="card-header">
+          <div class="step-number">2</div>
+          <div class="card-title">جلسة المريض (Patient Session)</div>
+        </div>
+        <div class="form-group">
+          <label>Clinic ID (UUID العيادة):</label>
+          <input type="text" id="session_clinic_id" value="a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d">
+        </div>
+        <div class="form-group">
+          <label>Patient Phone (رقم الهاتف):</label>
+          <input type="text" id="session_phone" value="07800000000">
+        </div>
+        <div class="form-group">
+          <label>Patient Name (اسم المريض):</label>
+          <input type="text" id="session_name" value="مريض تجريبي اختباري">
+        </div>
+        <button onclick="createSession()">👤 إنشاء / جلب الجلسة وتعبئة البيانات تلقائياً</button>
+        <div id="sessionOutput" class="output-box">بانتظار تنفيذ الطلب...</div>
+      </div>
+
+      <!-- 3️⃣ Available Slots Section -->
+      <div class="card">
+        <div class="card-header">
+          <div class="step-number">3</div>
+          <div class="card-title">الأوقات الشاغرة (Available Slots)</div>
+        </div>
+        <div class="form-group">
+          <label>Clinic ID (UUID):</label>
+          <input type="text" id="slots_clinic_id" value="a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d">
+        </div>
+        <div class="form-group">
+          <label>Branch ID (UUID):</label>
+          <input type="text" id="slots_branch_id" value="c3d4e5f6-7a8b-9c0d-1e2f-3a4b5c6d7e8f">
+        </div>
+        <div class="form-group">
+          <label>Department ID (UUID):</label>
+          <input type="text" id="slots_department_id" value="d1111111-1111-1111-1111-111111111111">
+        </div>
+        <div class="form-group">
+          <label>Service ID (UUID):</label>
+          <input type="text" id="slots_service_id" value="c2222222-2222-2222-2222-222222222222">
+        </div>
+        <div class="form-group">
+          <label>Target Date (YYYY-MM-DD):</label>
+          <input type="text" id="slots_target_date" value="2026-07-28">
+        </div>
+        <button onclick="fetchSlots()">📅 جلب المواعيد الشاغرة</button>
+        <div id="slotsOutput" class="output-box">بانتظار استجابة المواعيد...</div>
+      </div>
+
+      <!-- 4️⃣ Create Booking Section -->
+      <div class="card">
+        <div class="card-header">
+          <div class="step-number">4</div>
+          <div class="card-title">تنفيذ الحجز الذري الحي (Create Booking)</div>
+        </div>
+        <div class="form-group">
+          <label>Clinic ID (UUID):</label>
+          <input type="text" id="booking_clinic_id" value="a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d">
+        </div>
+        <div class="form-group">
+          <label>Patient ID (UUID): <span class="badge-auto">تعبئة آليّة من خطوة 2</span></label>
+          <input type="text" id="booking_patient_id" placeholder="سيتم التعبئة تلقائياً بعد الخطوة 2">
+        </div>
+        <div class="form-group">
+          <label>Session ID (UUID): <span class="badge-auto">تعبئة آليّة من خطوة 2</span></label>
+          <input type="text" id="booking_session_id" placeholder="سيتم التعبئة تلقائياً بعد الخطوة 2">
+        </div>
+        <div class="form-group">
+          <label>Clinic Offering ID (UUID):</label>
+          <input type="text" id="booking_offering_id" value="c2222222-2222-2222-2222-222222222222">
+        </div>
+        <div class="form-group">
+          <label>Appointment Time (ISO Timestamp):</label>
+          <input type="text" id="booking_time" value="2026-07-28T14:00:00Z">
+        </div>
+        <button class="btn-accent" onclick="createBooking()">⚡ تأكيد وتنفيذ الحجز المباشر</button>
+        <div id="bookingOutput" class="output-box">بانتظار تنفيذ الحجز واستحصال booking_code...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.onload = function() {
+      checkHealth();
+    };
+
+    async function checkHealth() {
+      const output = document.getElementById('healthOutput');
+      const pill = document.getElementById('healthStatus');
+      const text = document.getElementById('healthText');
+      output.innerText = 'جاري الفحص...';
+
+      try {
+        const res = await fetch('/health');
+        const data = await res.json();
+        if (res.ok) {
+          pill.classList.add('online');
+          text.innerText = 'السيرفر شغال متصل [200 OK]';
+          output.className = 'output-box success';
+          output.innerText = JSON.stringify(data, null, 2);
+        } else {
+          pill.classList.remove('online');
+          text.innerText = 'خطأ في الاستجابة';
+          output.className = 'output-box error';
+          output.innerText = JSON.stringify(data, null, 2);
+        }
+      } catch (err) {
+        pill.classList.remove('online');
+        text.innerText = 'تعذر الاتصال بالسيرفر';
+        output.className = 'output-box error';
+        output.innerText = 'Error: ' + err.message;
+      }
+    }
+
+    async function createSession() {
+      const output = document.getElementById('sessionOutput');
+      output.innerText = 'جاري إرسال الطلب إلى POST /api/bookings/session ...';
+
+      const payload = {
+        clinic_id: document.getElementById('session_clinic_id').value,
+        patient_phone: document.getElementById('session_phone').value,
+        patient_name: document.getElementById('session_name').value
+      };
+
+      try {
+        const res = await fetch('/api/bookings/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          output.className = 'output-box success';
+          output.innerText = JSON.stringify(data, null, 2);
+
+          // تعبئة حقول خطوة الحجز تلقائياً!
+          if (data.data) {
+            if (data.data.patient_id) document.getElementById('booking_patient_id').value = data.data.patient_id;
+            if (data.data.session_id) document.getElementById('booking_session_id').value = data.data.session_id;
+          }
+        } else {
+          output.className = 'output-box error';
+          output.innerText = JSON.stringify(data, null, 2);
+        }
+      } catch (err) {
+        output.className = 'output-box error';
+        output.innerText = 'Error: ' + err.message;
+      }
+    }
+
+    async function fetchSlots() {
+      const output = document.getElementById('slotsOutput');
+      output.innerText = 'جاري إرسال الطلب إلى GET /api/bookings/slots ...';
+
+      const clinic_id = document.getElementById('slots_clinic_id').value;
+      const branch_id = document.getElementById('slots_branch_id').value;
+      const department_id = document.getElementById('slots_department_id').value;
+      const service_id = document.getElementById('slots_service_id').value;
+      const target_date = document.getElementById('slots_target_date').value;
+
+      const query = new URLSearchParams({
+        clinic_id, branch_id, department_id, service_id, target_date
+      }).toString();
+
+      try {
+        const res = await fetch(`/api/bookings/slots?${query}`);
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          output.className = 'output-box success';
+          output.innerText = JSON.stringify(data, null, 2);
+        } else {
+          output.className = 'output-box error';
+          output.innerText = JSON.stringify(data, null, 2);
+        }
+      } catch (err) {
+        output.className = 'output-box error';
+        output.innerText = 'Error: ' + err.message;
+      }
+    }
+
+    async function createBooking() {
+      const output = document.getElementById('bookingOutput');
+      output.innerText = 'جاري إرسال الطلب إلى POST /api/bookings/create ...';
+
+      const payload = {
+        clinic_id: document.getElementById('booking_clinic_id').value,
+        patient_id: document.getElementById('booking_patient_id').value,
+        session_id: document.getElementById('booking_session_id').value,
+        clinic_offering_id: document.getElementById('booking_offering_id').value,
+        appointment_time: document.getElementById('booking_time').value
+      };
+
+      try {
+        const res = await fetch('/api/bookings/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          output.className = 'output-box success';
+          output.innerText = '🎉 تم إدخال الحجز بنجاح!\n\n' + JSON.stringify(data, null, 2);
+        } else {
+          output.className = 'output-box error';
+          output.innerText = JSON.stringify(data, null, 2);
+        }
+      } catch (err) {
+        output.className = 'output-box error';
+        output.innerText = 'Error: ' + err.message;
+      }
+    }
+  </script>
+</body>
+</html>
