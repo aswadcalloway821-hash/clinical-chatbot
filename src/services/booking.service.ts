@@ -37,36 +37,30 @@ export interface ClinicContext {
 export class BookingService {
   /**
    * 0️⃣ حاقن بيانات العيادة الحقيقي لمنع الهلوسة (Zero-Hallucination Context Injector)
-   * يستعلم مباشرة عن بيانات العيادة، الفروع، الأطباء، والخدمات من Supabase PostgreSQL
    */
   async getClinicContext(clinicId: string): Promise<ClinicContext> {
     try {
-      // 1. جلب العيادة
       const { data: clinic } = await supabase
         .from('clinics')
         .select('id, name')
         .eq('id', clinicId)
         .maybeSingle();
 
-      // 2. جلب الفروع
       const { data: branches } = await supabase
         .from('branches')
         .select('id, name')
         .eq('clinic_id', clinicId);
 
-      // 3. جلب الأطباء
       const { data: doctors } = await supabase
         .from('doctors')
         .select('id, name, title')
         .eq('clinic_id', clinicId);
 
-      // 4. جلب الخدمات
       const { data: services } = await supabase
         .from('services')
         .select('id, name, price')
         .eq('clinic_id', clinicId);
 
-      // 5. جلب العروض والربط
       const { data: offerings } = await supabase
         .from('clinic_offerings')
         .select('id, doctor_id, service_id, branch_id')
@@ -100,6 +94,20 @@ export class BookingService {
           },
         ],
       };
+    }
+  }
+
+  /**
+   * تحديث حالة المحادثة last_state في جدول patient_chat_sessions
+   */
+  async updateSessionState(sessionId: string, newState: string): Promise<void> {
+    try {
+      await supabase
+        .from('patient_chat_sessions')
+        .update({ last_state: newState, updated_at: new Date().toISOString() })
+        .eq('id', sessionId);
+    } catch (err: any) {
+      console.warn('⚠️ Failed to update session state:', err.message);
     }
   }
 
@@ -138,7 +146,7 @@ export class BookingService {
   }
 
   /**
-   * 2️⃣ البحث عن أقرب موعد متاح لخدمة معينة عبر RPC المباشرة
+   * 2️⃣ البحث عن أقرب موعد متاح لخدمة وطبيب معينيين عبر RPC المباشرة
    */
   async getNearestAvailableSlot(
     clinicId: string,
@@ -218,7 +226,7 @@ export class BookingService {
   }
 
   /**
-   * 4️⃣ محرك المعالجة التفاعلية البشري المالي باللهجة العراقية الخالصة مع حاقن بيانات العيادة الحقيقي
+   * 4️⃣ محرك المرحلة 2: مسار الحجز المتسلسل التفاعلي (Multi-Branch & Doctor Funnel)
    */
   async processIncomingWhatsAppMessage(
     clinicId: string,
@@ -227,28 +235,41 @@ export class BookingService {
   ): Promise<string> {
     const cleanText = (text || '').trim();
 
-    // 1. استدعاء Context Injector لجلب بيانات العيادة الحقيقية 100% منعاً للهلووسة
+    // 1. جلب سياق العيادة وجلسة المريض الحالية
     const clinicCtx = await this.getClinicContext(clinicId);
+    const session = await this.getOrCreatePatientSession(clinicId, phone, '');
+
     const activeOfferingId = clinicCtx.offerings?.[0]?.id || '2e4ede71-8ff6-4597-8067-b9a74c36d0c4';
     const primaryDoctorName = clinicCtx.doctors?.[0]?.name || 'د علي الحسان';
     const primaryServiceName = clinicCtx.services?.[0]?.name || 'كشفية باطنية عامة';
 
-    // 2. جلب جلسة المريض
-    const session = await this.getOrCreatePatientSession(clinicId, phone, '');
+    // 2. فحص ما إذا سأل المريض بدون تحديد الفرع وكان للعيادة أكثر من فرع
+    if (clinicCtx.branches.length > 1 && !/فرع|عشار|مطيحة|بصرة|الرئيسي/i.test(cleanText) && session.last_state === 'INIT') {
+      const branchNames = clinicCtx.branches.map((b) => b.name).join(' وفرع ');
+      await this.updateSessionState(session.session_id, 'INIT');
+      return `عيادتنا متوفرة بفرع ${branchNames} أي فرع يناسبك عيني حتى نشوفلك الأوقات الشاغرة`;
+    }
 
-    // 3. تحليل النيات
+    // 3. مطابقة اسم الدكتور عند التحديد الصريح
+    let matchedDoctor = clinicCtx.doctors.find((d) => cleanText.includes(d.name) || cleanText.includes(d.name.replace('د ', '')));
+    const selectedDoctorName = matchedDoctor?.name || primaryDoctorName;
+
+    // 4. تحليل النيات
     const isBookingRequest = /حجز|موعد|أحجز|احجز|اريد|اسنان|أسنان|باطنية|طبيب|دكتور|جلسة|سلام|مرحبا/i.test(cleanText);
     const isConfirmation = /ثبت|تأكيد|اوكي|أوكي|تمام|اي|نعم|أكيد|ماشي/i.test(cleanText);
     const words = cleanText.split(/\s+/).filter(Boolean);
     const isFullName = words.length >= 2 && !isBookingRequest && !isConfirmation;
 
-    // حالة 1: المريض كتب "أوكي" أو "تمام" أو "ثبت" لكن لم يكتب اسمه بعد
+    // 5. مسار الاستجابة وحالات آلة الحالة (last_state transitions)
+
+    // حالة A: المريض كتب "أوكي" أو "تمام" أو "ثبت" في مرحلة SLOT_PROPOSED لكن لم يكتب اسمه بعد
     if (isConfirmation && !isFullName && !session.patient_name) {
+      await this.updateSessionState(session.session_id, 'SLOT_PROPOSED');
       return 'تدلل عيني اكتبلي اسمك الثنائي حتى نثبت الموعد ونطيك كود الحجز';
     }
 
-    // حالة 2: المريض أدخل اسمه أو أكد الحجز بالكامل
-    if (isFullName || (isConfirmation && session.patient_name)) {
+    // حالة B: المريض أدخل اسمه أو أكد الحجز بالكامل (الانتقال لـ CONFIRMED)
+    if (isFullName || (isConfirmation && session.patient_name) || session.last_state === 'SLOT_PROPOSED' && isFullName) {
       const patientName = isFullName ? cleanText : session.patient_name;
 
       try {
@@ -264,7 +285,7 @@ export class BookingService {
             slot.slot_time
           );
         } catch (bookingError: any) {
-          // 1️⃣ اقتراح الموعد التالي تلقائياً عند تضارب الوقت
+          // 1️⃣ النقطة الأولى: اقتراح الموعد التالي تلقائياً عند تضارب الوقت
           slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 3);
           booking = await this.createAppointmentBooking(
             clinicId,
@@ -275,6 +296,9 @@ export class BookingService {
           );
         }
 
+        // تحديث حالة الجلسة إلى CONFIRMED
+        await this.updateSessionState(session.session_id, 'CONFIRMED');
+
         const dateFormatted = new Date(booking.appointment_time).toLocaleString('ar-IQ', {
           weekday: 'long',
           month: 'numeric',
@@ -284,7 +308,7 @@ export class BookingService {
         });
 
         // رد بشري نقي مستند للحقائق بدون أي علامات تنقيط
-        return `تدلل عيني تم تثبيت حجزك كود الحجز ${booking.booking_code} باسم ${patientName} عند ${booking.doctor_name || primaryDoctorName} موعدك ${dateFormatted} ننتظرك بالعيادة`;
+        return `تدلل عيني تم تثبيت حجزك كود الحجز ${booking.booking_code} باسم ${patientName} عند ${selectedDoctorName} موعدك ${dateFormatted} ننتظرك بالعيادة`;
       } catch (err: any) {
         // اقتراح الموعد التالي بلباقة عند الانشغال التام
         const nextSlot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 3);
@@ -297,7 +321,7 @@ export class BookingService {
       }
     }
 
-    // حالة 3: استفسار عن موعد جديد
+    // حالة C: استفسار عن موعد جديد أو طبيب معين (الانتقال لـ SLOT_PROPOSED)
     try {
       const slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 2);
       const formattedDate = new Date(slot.slot_time).toLocaleString('ar-IQ', {
@@ -308,8 +332,11 @@ export class BookingService {
         minute: '2-digit',
       });
 
+      // تحديث حالة الجلسة إلى SLOT_PROPOSED
+      await this.updateSessionState(session.session_id, 'SLOT_PROPOSED');
+
       // رد بشري مقتضب مستند للبيانات الحقيقية
-      return `اهلاً بك عيني أقرب موعد متاح لـ ${slot.service_name || primaryServiceName} مع ${slot.doctor_name || primaryDoctorName} هو ${formattedDate} إذا حاب تثبته دزلي اسمك الثنائي`;
+      return `اهلاً بك عيني أقرب موعد متاح لـ ${slot.service_name || primaryServiceName} مع ${selectedDoctorName} هو ${formattedDate} إذا حاب تثبته دزلي اسمك الثنائي`;
     } catch (err: any) {
       return `اهلاً بك عيني دزلي اسمك المباشر وشحابه تحجز حتى اساعدك فوراً`;
     }
