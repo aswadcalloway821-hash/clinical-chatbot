@@ -19,7 +19,7 @@ export interface AIStructuredResponse {
 export class AIService {
   /**
    * 🧠 محرك فهم اللغة الصافي (Pure Gemini Flash NLU)
-   * اعتماد نموذج gemini-1.5-flash الرسمي المعتمد أونلاين 100%
+   * يدعم جيل موديلات Gemini 2.0 / 1.5 Flash الحديثة مع المزامنة والسقوط الآمن للنموذج الأسرع
    */
   async processPureNLU(
     clinicContext: ClinicContext,
@@ -36,9 +36,9 @@ export class AIService {
       return this.fallbackPureNLU(cleanText, clinicContext);
     }
 
-    // نموذج gemini-1.5-flash المعتمد والمثبت في سيرفرات Google الرسمية
-    const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+    // تسلسل الموديلات الحديثة المقترحة مع السقوط المرن التلقائي
+    const requestedModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite-preview-02-05';
+    const candidateModels = [requestedModel, 'gemini-2.0-flash', 'gemini-1.5-flash'];
 
     const systemInstruction = 
       `أنت موظف استقبال بشري دافئ في ${clinicContext.clinic_name} في العراق. ` +
@@ -61,59 +61,69 @@ export class AIService {
       }
     ];
 
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: contentsPayload,
-          systemInstruction: { parts: [{ text: systemInstruction }] },
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 250,
-            responseMimeType: 'application/json',
-          }
-        }),
-      });
+    let rawText = '';
+    let success = false;
 
-      if (!res.ok) {
-        const errText = await res.text();
-        console.warn('⚠️ Gemini API HTTP Error:', res.status, errText);
-        return this.fallbackPureNLU(cleanText, clinicContext);
-      }
-
-      const data = await res.json();
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      
-      let parsed: any = {};
+    // تجربة الموديل الحديث أولاً مع السقوط التلقائي السريع عند عدم توفر اسم الموديل المحدد
+    for (const modelName of candidateModels) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
       try {
-        parsed = JSON.parse(rawText);
-      } catch (pErr) {
-        parsed = { replyText: rawText, intent: 'GENERAL_CHAT' };
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: contentsPayload,
+            systemInstruction: { parts: [{ text: systemInstruction }] },
+            generationConfig: {
+              temperature: 0.2,
+              maxOutputTokens: 250,
+              responseMimeType: 'application/json',
+            }
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          if (rawText) {
+            success = true;
+            break;
+          }
+        }
+      } catch (e) {
+        // تجربة الموديل التالي مباشرة
       }
+    }
 
-      let replyText = (parsed.replyText || '')
-        .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
-        .replace(/[*#@$*_]/g, '')
-        .replace(/\n+/g, ' ')
-        .trim();
-
-      if (!replyText) {
-        return this.fallbackPureNLU(cleanText, clinicContext);
-      }
-
-      const validIntents = ['CONFIRM_BOOKING', 'REQUEST_BOOKING', 'INQUIRE_INFO', 'GENERAL_CHAT'];
-      const intent = validIntents.includes(parsed.intent) ? parsed.intent : 'GENERAL_CHAT';
-
-      return {
-        replyText,
-        intent,
-        extractedDetails: parsed.extractedDetails || {},
-      };
-    } catch (err: any) {
-      console.warn('⚠️ Gemini Flash API Call Error:', err.message);
+    if (!success || !rawText) {
       return this.fallbackPureNLU(cleanText, clinicContext);
     }
+
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (pErr) {
+      parsed = { replyText: rawText, intent: 'GENERAL_CHAT' };
+    }
+
+    let replyText = (parsed.replyText || '')
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+      .replace(/[*#@$*_]/g, '')
+      .replace(/\n+/g, ' ')
+      .trim();
+
+    if (!replyText) {
+      return this.fallbackPureNLU(cleanText, clinicContext);
+    }
+
+    const validIntents = ['CONFIRM_BOOKING', 'REQUEST_BOOKING', 'INQUIRE_INFO', 'GENERAL_CHAT'];
+    const intent = validIntents.includes(parsed.intent) ? parsed.intent : 'GENERAL_CHAT';
+
+    return {
+      replyText,
+      intent,
+      extractedDetails: parsed.extractedDetails || {},
+    };
   }
 
   /**
