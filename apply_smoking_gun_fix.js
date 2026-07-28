@@ -1,4 +1,6 @@
-import { ClinicContext } from './booking.service';
+const fs = require('fs');
+
+const aiServiceContent = `import { ClinicContext } from './booking.service';
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -35,18 +37,18 @@ export class AIService {
     }
 
     const modelName = 'gemini-3.1-flash-lite';
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+    const endpoint = \`https://generativelanguage.googleapis.com/v1beta/models/\${modelName}:generateContent?key=\${apiKey}\`;
 
     const systemInstruction = 
-      `أنت موظف استقبال بشري دافئ ومحترف في ${clinicContext.clinic_name} في العراق. ` +
-      `قواعد صارمة: ` +
-      `1. اكتب ردودك بلهجة عراقية دافئة وقصيرة جداً (سطر إلى سطرين). ` +
-      `2. يمنع منعاً باتاً تكرار الجمل القديمة أو استخدام الإيموجيات أو علامات التنسيق (*, #, @, $). ` +
-      `3. أرجع الإجابة بتنسيق JSON حصراً يحتوي الحقول التالية: ` +
-      `replyText: نص الرد البشري الخالي من التنسيقات، ` +
-      `intent: يجب أن تكون إحدى القيم التالية حصراً بحروف كبيرة: (CONFIRM_BOOKING, REQUEST_BOOKING, INQUIRE_INFO, GENERAL_CHAT)، ` +
-      `extractedDetails: كائن يحتوي patient_name, preferred_doctor, preferred_serviceإذا تم التعرف عليها. ` +
-      `البيانات المتاحة: الأطباء: ${clinicContext.doctors.map(d => d.name).join(', ')}. الخدمات: ${clinicContext.services.map(s => s.name).join(', ')}.`;
+      \`أنت موظف استقبال بشري دافئ ومحترف في \${clinicContext.clinic_name} في العراق. \` +
+      \`قواعد صارمة: \` +
+      \`1. اكتب ردودك بلهجة عراقية دافئة وقصيرة جداً (سطر إلى سطرين). \` +
+      \`2. يمنع منعاً باتاً تكرار الجمل القديمة أو استخدام الإيموجيات أو علامات التنسيق (*, #, @, $). \` +
+      \`3. أرجع الإجابة بتنسيق JSON حصراً يحتوي الحقول التالية: \` +
+      \`replyText: نص الرد البشري الخالي من التنسيقات، \` +
+      \`intent: يجب أن تكون إحدى القيم التالية حصراً بحروف كبيرة: (CONFIRM_BOOKING, REQUEST_BOOKING, INQUIRE_INFO, GENERAL_CHAT)، \` +
+      \`extractedDetails: كائن يحتوي patient_name, preferred_doctor, preferred_serviceإذا تم التعرف عليها. \` +
+      \`البيانات المتاحة: الأطباء: \${clinicContext.doctors.map(d => d.name).join(', ')}. الخدمات: \${clinicContext.services.map(s => s.name).join(', ')}.\`;
 
     const contentsPayload = [
       ...slidingHistory,
@@ -88,9 +90,9 @@ export class AIService {
       }
 
       let replyText = (parsed.replyText || '')
-        .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+        .replace(/[\\u{1F600}-\\u{1F64F}\\u{1F300}-\\u{1F5FF}\\u{1F680}-\\u{1F6FF}\\u{1F1E0}-\\u{1F1FF}\\u{2600}-\\u{26FF}\\u{2700}-\\u{27BF}]/gu, '')
         .replace(/[*#@$*_]/g, '')
-        .replace(/\n+/g, ' ')
+        .replace(/\\n+/g, ' ')
         .trim();
 
       if (!replyText) {
@@ -124,7 +126,7 @@ export class AIService {
     const isDental = /اسنان|أسنان|حشوة|تقويم|تنظيف/i.test(cleanText);
     const isBooking = /حجز|موعد|أحجز|احجز|اريد|أريد/i.test(cleanText);
     const isConfirm = /ثبت|تأكيد|تمام|اوكي|أوكي|ماشي|نعم|اي/i.test(cleanText);
-    const words = cleanText.split(/\s+/).filter(Boolean);
+    const words = cleanText.split(/\\s+/).filter(Boolean);
     const isName = words.length >= 2 && !isQuestion && !isBooking && !isConfirm;
 
     const docObj = isDental 
@@ -136,7 +138,7 @@ export class AIService {
 
     if (isConfirm || isName) {
       return {
-        replyText: `تدلل عيني نثبت حجزك عند ${docObj.name} ننتظرك بالعيادة`,
+        replyText: \`تدلل عيني نثبت حجزك عند \${docObj.name} ننتظرك بالعيادة\`,
         intent: 'CONFIRM_BOOKING',
         extractedDetails: { patient_name: isName ? cleanText : undefined },
       };
@@ -144,7 +146,7 @@ export class AIService {
 
     if (isBooking) {
       return {
-        replyText: `اهلاً بك عيني متوفر حجز لـ ${serviceObj.name} مع ${docObj.name} دزلي اسمك الثنائي حتى نثبته لك`,
+        replyText: \`اهلاً بك عيني متوفر حجز لـ \${serviceObj.name} مع \${docObj.name} دزلي اسمك الثنائي حتى نثبته لك\`,
         intent: 'REQUEST_BOOKING',
         extractedDetails: { preferred_doctor: docObj.name, preferred_service: serviceObj.name },
       };
@@ -152,16 +154,20 @@ export class AIService {
 
     if (isQuestion) {
       return {
-        replyText: `اهلاً بك عيني عيادتنا بالفرع الرئيسي وسعر ${serviceObj.name} مناسب جدا حاب تثبت موعد دزلي اسمك`,
+        replyText: \`اهلاً بك عيني عيادتنا بالفرع الرئيسي وسعر \${serviceObj.name} مناسب جدا حاب تثبت موعد دزلي اسمك\`,
         intent: 'INQUIRE_INFO',
       };
     }
 
     return {
-      replyText: `اهلاً بك عيني نورت عيادتنا حاب تثبت موعد كشفية دزلي اسمك الثنائي`,
+      replyText: \`اهلاً بك عيني نورت عيادتنا حاب تثبت موعد كشفية دزلي اسمك الثنائي\`,
       intent: 'GENERAL_CHAT',
     };
   }
 }
 
 export const aiService = new AIService();
+`;
+
+fs.writeFileSync('src/services/ai.service.ts', aiServiceContent, 'utf8');
+console.log('Successfully updated src/services/ai.service.ts with gemini-3.1-flash-lite!');
