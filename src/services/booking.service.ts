@@ -112,6 +112,60 @@ export class BookingService {
   }
 
   /**
+   * 🧹 تصفير وإعادة تعيين الجلسة الحالية في Supabase
+   */
+  async resetPatientSession(clinicId: string, phone: string): Promise<boolean> {
+    try {
+      const session = await this.getOrCreatePatientSession(clinicId, phone, '');
+      await supabase
+        .from('patient_chat_sessions')
+        .update({
+          last_state: 'INIT',
+          active_session: [],
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', session.session_id);
+      return true;
+    } catch (err: any) {
+      console.warn('⚠️ Failed to reset session:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * 📋 جلب أحدث الحجوزات الحية المخزنة في Supabase PostgreSQL
+   */
+  async getRecentBookings(clinicId: string): Promise<any[]> {
+    try {
+      const { data } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          booking_code,
+          appointment_time,
+          status,
+          created_at,
+          patients (full_name, phone)
+        `)
+        .eq('clinic_id', clinicId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      return (data || []).map((b: any) => ({
+        booking_code: b.booking_code,
+        patient_name: b.patients?.full_name || 'مريض',
+        phone: b.patients?.phone || '',
+        appointment_time: b.appointment_time,
+        status: b.status,
+        created_at: b.created_at,
+      }));
+    } catch (err: any) {
+      console.warn('⚠️ Failed to fetch recent bookings:', err.message);
+      return [];
+    }
+  }
+
+  /**
    * 🧠 النافذة المتزلقة لـ 8 رسائل كحد أقصى (Sliding Window Context Buffer - 4 Turns Max)
    */
   async updateSlidingMemory(

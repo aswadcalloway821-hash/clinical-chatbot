@@ -23,6 +23,35 @@ router.post('/api/test-chat/message', async (req: Request, res: Response): Promi
 });
 
 /**
+ * 🧹 endpoint لتصفير وتحديث الجلسة الحالية في Supabase
+ */
+router.post('/api/test-chat/reset-session', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { phone, clinic_id } = req.body;
+    const patientPhone = phone || '07800000000';
+    const clinicId = clinic_id || DEFAULT_CLINIC_ID;
+
+    const resetOk = await bookingService.resetPatientSession(clinicId, patientPhone);
+    res.json({ success: resetOk });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 📋 endpoint لجلب أحدث الحجوزات الحية المخزنة بـ Supabase
+ */
+router.get('/api/test-chat/recent-bookings', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clinic_id = (req.query.clinic_id as string) || DEFAULT_CLINIC_ID;
+    const bookings = await bookingService.getRecentBookings(clinic_id);
+    res.json({ success: true, bookings });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * GET /api/booking/available-slots
  */
 router.get('/available-slots', async (req: Request, res: Response): Promise<void> => {

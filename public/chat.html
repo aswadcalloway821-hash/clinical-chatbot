@@ -41,13 +41,15 @@
     }
 
     header {
-      padding: 1.25rem 2rem;
+      padding: 1rem 2rem;
       background: rgba(11, 15, 25, 0.85);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--glass-border);
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
     }
 
     .logo-container {
@@ -70,6 +72,12 @@
       font-weight: 700;
     }
 
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
     .model-pill {
       background: rgba(0, 242, 254, 0.1);
       border: 1px solid rgba(0, 242, 254, 0.3);
@@ -90,6 +98,74 @@
       box-shadow: 0 0 10px var(--accent-green);
     }
 
+    .btn-reset {
+      background: rgba(255, 82, 82, 0.15);
+      border: 1px solid rgba(255, 82, 82, 0.4);
+      color: #ff5252;
+      padding: 0.4rem 0.9rem;
+      border-radius: 20px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-reset:hover {
+      background: rgba(255, 82, 82, 0.3);
+    }
+
+    .btn-copy {
+      background: rgba(79, 172, 254, 0.15);
+      border: 1px solid rgba(79, 172, 254, 0.4);
+      color: var(--accent-purple);
+      padding: 0.4rem 0.9rem;
+      border-radius: 20px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-copy:hover {
+      background: rgba(79, 172, 254, 0.3);
+    }
+
+    /* Scenario Bar */
+    .scenario-bar {
+      background: rgba(18, 26, 43, 0.6);
+      padding: 0.65rem 2rem;
+      border-bottom: 1px solid var(--glass-border);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      overflow-x: auto;
+    }
+
+    .scenario-title {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      font-weight: 600;
+    }
+
+    .scenario-btn {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--glass-border);
+      color: var(--text-main);
+      padding: 0.35rem 0.75rem;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+
+    .scenario-btn:hover {
+      background: rgba(0, 242, 254, 0.15);
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+
     main {
       flex: 1;
       display: grid;
@@ -108,7 +184,7 @@
       border-radius: 16px;
       display: flex;
       flex-direction: column;
-      height: calc(100vh - 120px);
+      height: calc(100vh - 160px);
       overflow: hidden;
       box-shadow: 0 20px 40px rgba(0,0,0,0.5);
     }
@@ -344,7 +420,7 @@
       font-family: monospace;
       font-size: 0.78rem;
       color: #38ef7d;
-      max-height: 220px;
+      max-height: 200px;
       overflow-y: auto;
       direction: ltr;
       text-align: left;
@@ -355,7 +431,7 @@
       display: flex;
       flex-direction: column;
       gap: 0.4rem;
-      max-height: 240px;
+      max-height: 200px;
       overflow-y: auto;
     }
 
@@ -377,6 +453,37 @@
       margin-bottom: 0.1rem;
     }
 
+    /* Table Inspector */
+    .bookings-table-container {
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    table.bookings-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      text-align: right;
+    }
+
+    table.bookings-table th {
+      background: rgba(0,0,0,0.3);
+      color: var(--text-muted);
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--glass-border);
+      position: sticky;
+      top: 0;
+    }
+
+    table.bookings-table td {
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+
+    table.bookings-table tr:hover {
+      background: rgba(255,255,255,0.04);
+    }
+
     @media (max-width: 1024px) {
       main { grid-template-columns: 1fr; }
       .whatsapp-card { height: 500px; }
@@ -391,11 +498,24 @@
       <span class="logo-badge">SIJIL 2.0</span>
       <h1 class="header-title">مركز تتبع المحادثة الحية والبيانات | Live Telemetry Inspector</h1>
     </div>
-    <div class="model-pill">
-      <div class="status-dot"></div>
-      <span>نموذج الذكاء: gemini-2.5-flash-lite</span>
+    <div class="header-actions">
+      <button class="btn-copy" onclick="copyTelemetryTrace()">📋 نسخ سجل التتبع</button>
+      <button class="btn-reset" onclick="resetSession()">🧹 تصفير الجلسة الحالية</button>
+      <div class="model-pill">
+        <div class="status-dot"></div>
+        <span>gemini-2.5-flash-lite</span>
+      </div>
     </div>
   </header>
+
+  <!-- Scenario Bar -->
+  <div class="scenario-bar">
+    <span class="scenario-title">⚡ سيناريوهات الاختبار الفوري:</span>
+    <button class="scenario-btn" onclick="runPresetScenario('inquiry')">🚀 1. استعلام أسعار وموقع</button>
+    <button class="scenario-btn" onclick="runPresetScenario('booking')">📅 2. طلب موعد وتصفح الشواغر</button>
+    <button class="scenario-btn" onclick="runPresetScenario('confirm')">💎 3. إدخال الاسم وإصدار كود BK-XXXXXX</button>
+    <button class="scenario-btn" onclick="runPresetScenario('doctor')">👨‍⚕️ 4. البحث عن طبيب محدد بالاسم</button>
+  </div>
 
   <main>
     <!-- Left Column: WhatsApp Simulator -->
@@ -477,19 +597,38 @@
         </div>
       </article>
 
-      <!-- Card 4: Atomic Booking Trace -->
+      <!-- Card 4: Live Supabase Bookings Table -->
       <article class="telemetry-card" style="grid-column: span 2;">
         <div class="card-title">
-          <span>💎 تتبع الحجز الذري في Supabase (Postgres Trace)</span>
-          <span class="badge badge-booking" id="bookingCodeBadge">لا يوجد حجز بعد</span>
+          <span>💎 جدول الحجوزات الحية المخزنة بـ Supabase (Live PostgreSQL Inspector)</span>
+          <button class="scenario-btn" style="padding: 0.2rem 0.6rem; font-size: 0.7rem;" onclick="fetchRecentBookings()">🔄 تحديث القائمة</button>
         </div>
-        <div class="json-box" id="bookingTraceBox">// سيظهر كود الحجز وتفاصيل الجلسة فور تثبيت الموعد...</div>
+        <div class="bookings-table-container">
+          <table class="bookings-table">
+            <thead>
+              <tr>
+                <th>كود الحجز</th>
+                <th>اسم المريض</th>
+                <th>رقم الهاتف</th>
+                <th>موعد الحجز</th>
+                <th>الحالة</th>
+              </tr>
+            </thead>
+            <tbody id="bookingsTbody">
+              <tr>
+                <td colspan="5" style="text-align:center; color: var(--text-muted); padding: 1rem;">جاري جلب الحجوزات الحية...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </article>
 
     </section>
   </main>
 
   <script>
+    let lastTelemetryData = null;
+
     async function handleSend(e) {
       if (e) e.preventDefault();
       const inputEl = document.getElementById('userInput');
@@ -498,11 +637,9 @@
 
       const phone = document.getElementById('patientPhone').value.trim() || '07881015825';
       
-      // Append user message bubble
       appendMessage(text, 'user');
       inputEl.value = '';
 
-      // Send REST request
       try {
         const res = await fetch('/api/test-chat/message', {
           method: 'POST',
@@ -512,15 +649,71 @@
         
         const data = await res.json();
         if (data.success && data.telemetry) {
-          const t = data.telemetry;
-          appendMessage(t.botReply, 'bot');
-          updateTelemetryUI(t);
+          lastTelemetryData = data.telemetry;
+          appendMessage(data.telemetry.botReply, 'bot');
+          updateTelemetryUI(data.telemetry);
+          fetchRecentBookings();
         } else {
           appendMessage('حدث خطأ أثناء معالجة الطلب', 'bot');
         }
       } catch (err) {
         appendMessage('تعذر الاتصال بالسيرفر: ' + err.message, 'bot');
       }
+    }
+
+    async function resetSession() {
+      const phone = document.getElementById('patientPhone').value.trim() || '07881015825';
+      try {
+        await fetch('/api/test-chat/reset-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone })
+        });
+        
+        document.getElementById('chatMessages').innerHTML = `
+          <div class="msg-bubble msg-bot">
+            تم تصفير الجلسة الحالية عيني 🧹 يمكنك بدء محادثة جديدة الآن!
+            <div class="msg-time">الآن</div>
+          </div>
+        `;
+        document.getElementById('intentBadge').innerText = 'INIT';
+        document.getElementById('extractedDetailsBox').innerText = '{}';
+        document.getElementById('historyList').innerHTML = `<p style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1rem;">تم تصفير الجلسة بنجاح</p>`;
+        document.getElementById('memoryCount').innerText = '0 / 8 رسائل';
+      } catch (err) {
+        alert('تعذر تصفير الجلسة: ' + err.message);
+      }
+    }
+
+    async function fetchRecentBookings() {
+      try {
+        const res = await fetch('/api/test-chat/recent-bookings');
+        const data = await res.json();
+        const tbody = document.getElementById('bookingsTbody');
+
+        if (data.success && data.bookings && data.bookings.length > 0) {
+          tbody.innerHTML = data.bookings.map(b => `
+            <tr>
+              <td style="color: var(--accent-cyan); font-weight: bold;">${b.booking_code}</td>
+              <td>${b.patient_name}</td>
+              <td style="direction: ltr; text-align: right;">${b.phone}</td>
+              <td>${new Date(b.appointment_time).toLocaleString('ar-IQ')}</td>
+              <td><span class="badge badge-booking">${b.status || 'confirmed'}</span></td>
+            </tr>
+          `).join('');
+        } else {
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: var(--text-muted); padding: 1rem;">لا توجد حجوزات مسجلة بعد</td></tr>`;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch recent bookings:', err.message);
+      }
+    }
+
+    function runPresetScenario(type) {
+      if (type === 'inquiry') sendQuickMsg('شلون أسعار الكشفية عدكم ومكانكم بالظبط؟');
+      else if (type === 'booking') sendQuickMsg('أريد أحجز موعد باجر دكتور');
+      else if (type === 'confirm') sendQuickMsg('حسين علي المحمداوي - تمام ثبت الموعد');
+      else if (type === 'doctor') sendQuickMsg('أريد أحجز عند دكتور علي الحسان');
     }
 
     function sendQuickMsg(txt) {
@@ -540,15 +733,20 @@
       container.scrollTop = container.scrollHeight;
     }
 
+    function copyTelemetryTrace() {
+      if (!lastTelemetryData) {
+        alert('لا توجد بيانات تتبع مسجلة بعد، قم بإرسال رسالة أولاً.');
+        return;
+      }
+      navigator.clipboard.writeText(JSON.stringify(lastTelemetryData, null, 2));
+      alert('تم نسخ سجل التتبع (Telemetry Trace) للحافظة بنجاح 📋!');
+    }
+
     function updateTelemetryUI(t) {
-      // 1. Intent Badge & Extracted Details
       document.getElementById('intentBadge').innerText = t.intent || 'GENERAL_CHAT';
       document.getElementById('extractedDetailsBox').innerText = JSON.stringify(t.extractedDetails || {}, null, 2);
-      
-      // 2. Latency
       document.getElementById('latencyValue').innerText = t.executionTimeMs || '--';
 
-      // 3. Sliding Memory (Max 8)
       const historyList = document.getElementById('historyList');
       const history = t.chatHistory || [];
       document.getElementById('memoryCount').innerText = `${history.length} / 8 رسائل`;
@@ -563,30 +761,10 @@
           </div>
         `).join('');
       }
-
-      // 4. Booking Trace
-      const bookingBadge = document.getElementById('bookingCodeBadge');
-      const bookingTraceBox = document.getElementById('bookingTraceBox');
-
-      if (t.bookingResult) {
-        const b = t.bookingResult;
-        bookingBadge.innerText = `كود الحجز: ${b.booking_code}`;
-        bookingBadge.className = 'badge badge-booking';
-        bookingTraceBox.innerText = JSON.stringify({
-          booking_code: b.booking_code,
-          booking_id: b.booking_id,
-          patient_name: b.patient_name,
-          doctor_name: b.doctor_name,
-          service_name: b.service_name,
-          appointment_time: b.appointment_time,
-          status: b.booking_status
-        }, null, 2);
-      } else {
-        bookingBadge.innerText = 'بانتظار التأكيد...';
-        bookingBadge.className = 'badge badge-intent';
-        bookingTraceBox.innerText = `حالة الجلسة الحالية: ${t.sessionState}\nفي انتظار إدخال اسم المريض الثنائي لإصدار كود الحجز...`;
-      }
     }
+
+    // Load recent bookings on start
+    fetchRecentBookings();
   </script>
 </body>
 </html>
