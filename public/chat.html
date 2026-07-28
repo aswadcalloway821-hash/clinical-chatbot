@@ -503,7 +503,7 @@
       <button class="btn-reset" onclick="resetSession()">🧹 تصفير الجلسة الحالية</button>
       <div class="model-pill">
         <div class="status-dot"></div>
-        <span>gemini-2.5-flash-lite</span>
+        <span>gemini-3.1-flash-lite</span>
       </div>
     </div>
   </header>
@@ -563,7 +563,7 @@
         </div>
         <div style="margin-bottom: 0.75rem;">
           <p style="font-size: 0.8rem; color: var(--text-muted);">النموذج الصريح النشط:</p>
-          <p style="font-size: 0.95rem; font-weight: 600; color: var(--accent-cyan);" id="activeModelName">gemini-2.5-flash-lite</p>
+          <p style="font-size: 0.95rem; font-weight: 600; color: var(--accent-cyan);" id="activeModelName">gemini-3.1-flash-lite</p>
         </div>
         <div>
           <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">البيانات المستخرجة (Extracted Details):</p>
@@ -641,7 +641,7 @@
       inputEl.value = '';
 
       try {
-        const res = await fetch('/api/test-chat/message', {
+        const res = await fetch(BASE_URL + '/api/test-chat/message', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone, text })
@@ -664,7 +664,7 @@
     async function resetSession() {
       const phone = document.getElementById('patientPhone').value.trim() || '07881015825';
       try {
-        await fetch('/api/test-chat/reset-session', {
+        await fetch(BASE_URL + '/api/test-chat/reset-session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone })
@@ -687,7 +687,7 @@
 
     async function fetchRecentBookings() {
       try {
-        const res = await fetch('/api/test-chat/recent-bookings');
+        const res = await fetch(BASE_URL + '/api/test-chat/recent-bookings');
         const data = await res.json();
         const tbody = document.getElementById('bookingsTbody');
 
@@ -756,7 +756,7 @@
       } else {
         historyList.innerHTML = history.map(item => `
           <div class="history-item ${item.role}">
-            <div class="history-role">${item.role === 'user' ? '👤 المريض' : '🤖 البوت (gemini-2.5-flash-lite)'}</div>
+            <div class="history-role">${item.role === 'user' ? '👤 المريض' : '🤖 البوت (gemini-3.1-flash-lite)'}</div>
             <div>${item.parts?.[0]?.text || ''}</div>
           </div>
         `).join('');
