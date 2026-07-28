@@ -627,6 +627,7 @@
   </main>
 
   <script>
+    const BASE_URL = window.location.protocol.startsWith('file') ? 'https://clinical-chatbot-4uof.onrender.com' : '';
     let lastTelemetryData = null;
 
     async function handleSend(e) {
