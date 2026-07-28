@@ -1,119 +1,49 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { bookingService } from '../services/booking.service';
 
 const router = Router();
 
+const DEFAULT_CLINIC_ID = '11111111-1111-1111-1111-111111111111';
+
 /**
- * 🔹 المسار الأول: إنشاء / جلب جلسة المريض
- * POST /api/bookings/session
+ * 🧪 endpoint لـ Web Chat Simulator & Data Telemetry Inspector
  */
-router.post('/session', async (req: any, res: any) => {
+router.post('/api/test-chat/message', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { clinic_id, patient_phone, patient_name } = req.body || {};
+    const { phone, text, clinic_id } = req.body;
+    const patientPhone = phone || '07800000000';
+    const messageText = text || 'سلام عليكم';
+    const clinicId = clinic_id || DEFAULT_CLINIC_ID;
 
-    if (!clinic_id || !patient_phone) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields',
-      });
-    }
-
-    const session = await bookingService.getOrCreatePatientSession(
-      clinic_id,
-      patient_phone,
-      patient_name
-    );
-
-    return res.status(200).json({
-      success: true,
-      data: session,
-    });
+    const telemetry = await bookingService.processTestMessageWithTelemetry(clinicId, patientPhone, messageText);
+    res.json({ success: true, telemetry });
   } catch (error: any) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
- * 🔹 المسار الثاني: الاستعلام عن أقرب موعد شاغر
- * GET /api/bookings/slots
+ * GET /api/booking/available-slots
  */
-router.get('/slots', async (req: any, res: any) => {
+router.get('/available-slots', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { clinic_id, clinic_offering_id } = req.query || {};
+    const clinic_id = (req.query.clinic_id as string) || DEFAULT_CLINIC_ID;
+    const branch_id = req.query.branch_id as string;
+    const department_id = req.query.department_id as string;
+    const service_id = req.query.service_id as string;
+    const target_date = req.query.target_date as string;
 
-    if (!clinic_id) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required clinic_id query parameter',
-      });
-    }
-
-    const defaultOfferingId = (clinic_offering_id as string) || '2e4ede71-8ff6-4597-8067-b9a74c36d0c4';
-
-    const slots = await bookingService.getNearestAvailableSlot(
-      clinic_id as string,
-      defaultOfferingId
+    const slot = await bookingService.getNearestAvailableSlot(
+      clinic_id,
+      branch_id,
+      department_id,
+      service_id,
+      target_date
     );
 
-    return res.status(200).json({
-      success: true,
-      data: slots,
-    });
+    res.json({ success: true, slot });
   } catch (error: any) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
-
-/**
- * 🔹 المسار الثالث: تنفيذ الحجز الصريح والذري
- * POST /api/bookings/create
- */
-router.post('/create', async (req: any, res: any) => {
-  try {
-    const {
-      clinic_id,
-      patient_id,
-      session_id,
-      clinic_offering_id,
-      appointment_time,
-    } = req.body || {};
-
-    if (
-      !clinic_id ||
-      !patient_id ||
-      !session_id ||
-      !clinic_offering_id ||
-      !appointment_time
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields',
-      });
-    }
-
-    const booking = await bookingService.createAppointmentBooking(
-      clinic_id,
-      patient_id,
-      session_id,
-      clinic_offering_id,
-      appointment_time
-    );
-
-    return res.status(201).json({
-      success: true,
-      data: booking,
-    });
-  } catch (error: any) {
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

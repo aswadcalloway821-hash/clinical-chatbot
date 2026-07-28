@@ -36,6 +36,18 @@ export interface ClinicContext {
   offerings: Array<{ id: string; doctor_id: string; service_id: string; branch_id: string }>;
 }
 
+export interface TelemetryData {
+  botReply: string;
+  intent: string;
+  extractedDetails: any;
+  sessionState: string;
+  chatHistory: ChatMessage[];
+  clinicContext: ClinicContext;
+  bookingResult?: BookingResult;
+  executionTimeMs: number;
+  activeModel: string;
+}
+
 export class BookingService {
   /**
    * 0️⃣ حاقن بيانات العيادة الحقيقي لمنع الهلوسة (Zero-Hallucination Context Injector)
@@ -245,6 +257,19 @@ export class BookingService {
     phone: string,
     text: string
   ): Promise<string> {
+    const res = await this.processTestMessageWithTelemetry(clinicId, phone, text);
+    return res.botReply;
+  }
+
+  /**
+   * 🔍 دالة تتبع البيانات الحية Telemetry Data Inspector للمحاكاة المباشرة
+   */
+  async processTestMessageWithTelemetry(
+    clinicId: string,
+    phone: string,
+    text: string
+  ): Promise<TelemetryData> {
+    const startTime = Date.now();
     const cleanText = (text || '').trim();
 
     // 1. جلب سياق العيادة وجلسة المريض
@@ -261,6 +286,7 @@ export class BookingService {
 
     let finalReply = nluResult.replyText;
     let nextState = session.last_state;
+    let createdBooking: BookingResult | undefined = undefined;
 
     // 4. تنفيذ المنطق الموجه بالنية (Intent-Driven Control Flow)
     if (nluResult.intent === 'CONFIRM_BOOKING') {
@@ -268,10 +294,9 @@ export class BookingService {
 
       try {
         let slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 6);
-        let booking: BookingResult;
 
         try {
-          booking = await this.createAppointmentBooking(
+          createdBooking = await this.createAppointmentBooking(
             clinicId,
             session.patient_id,
             session.session_id,
@@ -280,7 +305,7 @@ export class BookingService {
           );
         } catch (bErr) {
           slot = await this.getNearestAvailableSlot(clinicId, undefined, undefined, undefined, undefined, 7);
-          booking = await this.createAppointmentBooking(
+          createdBooking = await this.createAppointmentBooking(
             clinicId,
             session.patient_id,
             session.session_id,
@@ -289,7 +314,7 @@ export class BookingService {
           );
         }
 
-        const dateFormatted = new Date(booking.appointment_time).toLocaleString('ar-IQ', {
+        const dateFormatted = new Date(createdBooking.appointment_time).toLocaleString('ar-IQ', {
           weekday: 'long',
           month: 'numeric',
           day: 'numeric',
@@ -297,7 +322,7 @@ export class BookingService {
           minute: '2-digit',
         });
 
-        finalReply = `تدلل عيني تم تثبيت حجزك كود الحجز ${booking.booking_code} باسم ${patientName} عند ${booking.doctor_name || primaryDoctorName} موعدك ${dateFormatted} ننتظرك بالعيادة`;
+        finalReply = `تدلل عيني تم تثبيت حجزك كود الحجز ${createdBooking.booking_code} باسم ${patientName} عند ${createdBooking.doctor_name || primaryDoctorName} موعدك ${dateFormatted} ننتظرك بالعيادة`;
         nextState = 'CONFIRMED';
       } catch (err: any) {
         finalReply = `عيني هذا الموعد انحجز قبل لحظات متوفر موعد الخميس 4 م أو الجمعة 5 م أي يناسبك حتى نثبته`;
@@ -318,7 +343,19 @@ export class BookingService {
     history.push({ role: 'model', parts: [{ text: finalReply }] });
     await this.updateSlidingMemory(session.session_id, nextState, history);
 
-    return finalReply;
+    const executionTimeMs = Date.now() - startTime;
+
+    return {
+      botReply: finalReply,
+      intent: nluResult.intent,
+      extractedDetails: nluResult.extractedDetails || {},
+      sessionState: nextState,
+      chatHistory: history.slice(-8),
+      clinicContext: clinicCtx,
+      bookingResult: createdBooking,
+      executionTimeMs,
+      activeModel: 'gemini-2.5-flash-lite',
+    };
   }
 }
 

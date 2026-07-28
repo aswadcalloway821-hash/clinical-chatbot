@@ -1,53 +1,54 @@
-import express from 'express';
-import cors from 'cors';
 import dotenv from 'dotenv';
-import fs from 'fs';
 import path from 'path';
-import bookingRoutes from './routes/booking.routes';
-import webhookRoutes from './routes/webhook.routes';
+import fs from 'fs';
 
-// تحميل .env لدعم بيئة Render السحابية (/etc/secrets/.env)
-if (fs.existsSync('/etc/secrets/.env')) {
-  dotenv.config({ path: '/etc/secrets/.env' });
+// Render Secret File Compatibility
+const renderSecretEnvPath = '/etc/secrets/.env';
+if (fs.existsSync(renderSecretEnvPath)) {
+  dotenv.config({ path: renderSecretEnvPath });
 }
 dotenv.config();
 
-const app = express();
+import express, { Express, Request, Response } from 'express';
+import cors from 'cors';
+import bookingRoutes from './routes/booking.routes';
+import webhookRoutes from './routes/webhook.routes';
+
+const app: Express = express();
 const PORT = process.env.PORT || 3000;
 
-// الميدلوير الأساسي
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// 1️⃣ تفعيل مجلد الـ Static لخدمة واجهة الاختبار التفاعلية
-const publicPath = path.join(process.cwd(), 'public');
+// خدمة الملفات الثابتة لصفحة المحاكاة والتتبع
+const publicPath = path.join(__dirname, '../public');
 app.use(express.static(publicPath));
 
-// 2️⃣ إضافة مسار صريح للصفحة الرئيسية لضمان فتح index.html مباشرة
-app.get('/', (req, res) => {
-  res.sendFile(path.join(publicPath, 'index.html'));
-});
-
-// 3️⃣ تسجيل مسارات الحجز والويب هوك (كلتا البادئتين للضمان)
-app.use('/api/bookings', bookingRoutes);
+// Routes
+app.use('/api/booking', bookingRoutes);
+app.use('/', bookingRoutes); // دعم مسار /api/test-chat/message مباشرة
 app.use('/api/webhook', webhookRoutes);
 app.use('/webhook', webhookRoutes);
 
-// مسار فحص الصحة (Health Check)
-app.get('/health', (req, res) => {
-  res.status(200).json({
+// صفحة محاكي المحادثة وتتبع البيانات
+app.get('/test-chat', (_req: Request, res: Response) => {
+  res.sendFile(path.join(publicPath, 'chat.html'));
+});
+
+// Health check
+app.get('/health', (_req: Request, res: Response) => {
+  res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     verifyTokenConfigured: Boolean(process.env.WEBHOOK_VERIFY_TOKEN),
+    geminiKeyConfigured: Boolean(process.env.GEMINI_API_KEY),
   });
 });
 
-// تشغيل الخادم
 app.listen(PORT, () => {
-  console.log(`🚀 Sijil Express Server is running on port ${PORT}`);
-  console.log(`💻 Interactive Test Dashboard: http://localhost:${PORT}/`);
-  console.log(`📲 WhatsApp Webhook URL: http://localhost:${PORT}/api/webhook/whatsapp`);
-  console.log(`📡 Health Check URL: http://localhost:${PORT}/health`);
-  console.log(`📅 Bookings API Base URL: http://localhost:${PORT}/api/bookings`);
-  console.log(`🔑 WEBHOOK_VERIFY_TOKEN status: ${process.env.WEBHOOK_VERIFY_TOKEN ? 'CONFIGURED ✅' : 'MISSING ❌'}`);
+  console.log(`⚡ [Sijil Engine] Server running on port ${PORT}`);
+  console.log(`🧪 [Telemetry Dashboard] Live Test Chat Simulator available at: http://localhost:${PORT}/test-chat`);
 });
+
+export default app;

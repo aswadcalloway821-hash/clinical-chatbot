@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>مركز تتبع المحادثة الحية والبيانات | سجل 2.0 (Sijil Engine)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Noto+Kufi+Arabic:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0b0f19;
+      --panel-bg: rgba(18, 26, 43, 0.75);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --accent-cyan: #00f2fe;
+      --accent-purple: #4facfe;
+      --accent-green: #00e676;
+      --text-main: #f0f4f8;
+      --text-muted: #94a3b8;
+      --wa-bg: #0b141a;
+      --wa-bubble-user: #005c4b;
+      --wa-bubble-bot: #202c33;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Noto Kufi Arabic', 'Outfit', sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(0, 242, 254, 0.12) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(79, 172, 254, 0.12) 0px, transparent 50%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 1.25rem 2rem;
+      background: rgba(11, 15, 25, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--glass-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .logo-badge {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      color: #000;
+      font-weight: 700;
+      padding: 0.35rem 0.75rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+
+    .header-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+
+    .model-pill {
+      background: rgba(0, 242, 254, 0.1);
+      border: 1px solid rgba(0, 242, 254, 0.3);
+      color: var(--accent-cyan);
+      padding: 0.4rem 1rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--accent-green);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--accent-green);
+    }
+
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 420px 1fr;
+      gap: 1.5rem;
+      padding: 1.5rem;
+      max-width: 1600px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* Left Column: WhatsApp Simulator */
+    .whatsapp-card {
+      background: var(--wa-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 120px);
+      overflow: hidden;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+
+    .wa-header {
+      background: #202c33;
+      padding: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .avatar {
+      width: 42px;
+      height: 42px;
+      background: linear-gradient(135deg, #00b4db, #0083b0);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 1.1rem;
+    }
+
+    .wa-info h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .wa-info p {
+      font-size: 0.75rem;
+      color: var(--accent-green);
+    }
+
+    .phone-input-bar {
+      padding: 0.6rem 1rem;
+      background: #111b21;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .phone-input-bar label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .phone-input-bar input {
+      background: #202c33;
+      border: 1px solid var(--glass-border);
+      color: #fff;
+      padding: 0.3rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      width: 140px;
+      text-align: center;
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 1rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      background-image: radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 16px 16px;
+    }
+
+    .msg-bubble {
+      max-width: 82%;
+      padding: 0.65rem 0.9rem;
+      border-radius: 12px;
+      font-size: 0.88rem;
+      line-height: 1.45;
+      position: relative;
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg-user {
+      align-self: flex-start;
+      background: var(--wa-bubble-user);
+      color: #e9edef;
+      border-bottom-right-radius: 2px;
+    }
+
+    .msg-bot {
+      align-self: flex-end;
+      background: var(--wa-bubble-bot);
+      color: #e9edef;
+      border-bottom-left-radius: 2px;
+    }
+
+    .msg-time {
+      font-size: 0.65rem;
+      color: rgba(255,255,255,0.5);
+      margin-top: 0.25rem;
+      text-align: left;
+    }
+
+    .quick-chips {
+      padding: 0.5rem 0.75rem;
+      background: #111b21;
+      display: flex;
+      gap: 0.4rem;
+      overflow-x: auto;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .chip {
+      background: #202c33;
+      color: var(--accent-cyan);
+      border: 1px solid rgba(0, 242, 254, 0.2);
+      padding: 0.35rem 0.7rem;
+      border-radius: 14px;
+      font-size: 0.75rem;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .chip:hover {
+      background: rgba(0, 242, 254, 0.15);
+      border-color: var(--accent-cyan);
+    }
+
+    .wa-input-area {
+      padding: 0.75rem;
+      background: #202c33;
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .wa-input-area input {
+      flex: 1;
+      background: #2a3942;
+      border: none;
+      color: #fff;
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+
+    .wa-input-area button {
+      background: #00a884;
+      color: #fff;
+      border: none;
+      padding: 0.65rem 1.25rem;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .wa-input-area button:hover {
+      background: #06cf9c;
+    }
+
+    /* Right Column: Telemetry Inspector */
+    .telemetry-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+      align-content: start;
+    }
+
+    .telemetry-card {
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 1.25rem;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+
+    .card-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--glass-border);
+      padding-bottom: 0.5rem;
+    }
+
+    .badge {
+      padding: 0.25rem 0.6rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .badge-intent {
+      background: rgba(79, 172, 254, 0.2);
+      color: var(--accent-purple);
+      border: 1px solid var(--accent-purple);
+    }
+
+    .badge-booking {
+      background: rgba(0, 230, 118, 0.2);
+      color: var(--accent-green);
+      border: 1px solid var(--accent-green);
+    }
+
+    .metric-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: #fff;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    .metric-unit {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .json-box {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 8px;
+      padding: 0.75rem;
+      font-family: monospace;
+      font-size: 0.78rem;
+      color: #38ef7d;
+      max-height: 220px;
+      overflow-y: auto;
+      direction: ltr;
+      text-align: left;
+      white-space: pre-wrap;
+    }
+
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+
+    .history-item {
+      background: rgba(255,255,255,0.03);
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      border-right: 3px solid var(--accent-purple);
+    }
+
+    .history-item.user {
+      border-right-color: var(--accent-cyan);
+    }
+
+    .history-role {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-bottom: 0.1rem;
+    }
+
+    @media (max-width: 1024px) {
+      main { grid-template-columns: 1fr; }
+      .whatsapp-card { height: 500px; }
+      .telemetry-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo-container">
+      <span class="logo-badge">SIJIL 2.0</span>
+      <h1 class="header-title">مركز تتبع المحادثة الحية والبيانات | Live Telemetry Inspector</h1>
+    </div>
+    <div class="model-pill">
+      <div class="status-dot"></div>
+      <span>نموذج الذكاء: gemini-2.5-flash-lite</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Left Column: WhatsApp Simulator -->
+    <section class="whatsapp-card">
+      <div class="wa-header">
+        <div class="avatar">🏥</div>
+        <div class="wa-info">
+          <h3>عيادة ابتسامة البصرة</h3>
+          <p>متصل الآن • رد آلي بشري 100%</p>
+        </div>
+      </div>
+
+      <div class="phone-input-bar">
+        <label>رقم هاتف المريض:</label>
+        <input type="text" id="patientPhone" value="07881015825">
+      </div>
+
+      <div class="chat-messages" id="chatMessages">
+        <div class="msg-bubble msg-bot">
+          أهلاً بك في عيادة سجل 🏥 كيف يمكننا مساعدتك اليوم عيني؟
+          <div class="msg-time">الآن</div>
+        </div>
+      </div>
+
+      <div class="quick-chips">
+        <span class="chip" onclick="sendQuickMsg('شلون أسعار الكشفية عدكم ومكانكم بالظبط؟')">💡 استعلام أسعار وموقع</span>
+        <span class="chip" onclick="sendQuickMsg('أريد أحجز موعد أسنان باجر')">📅 طلب موعد أسنان</span>
+        <span class="chip" onclick="sendQuickMsg('حسين علي المحمداوي - تمام ثبت الموعد')">✅ تثبيت حجز باسم</span>
+      </div>
+
+      <form class="wa-input-area" id="chatForm" onsubmit="handleSend(event)">
+        <input type="text" id="userInput" placeholder="اكتب رسالتك للهاتف البشري..." required autocomplete="off">
+        <button type="submit">إرسال 🚀</button>
+      </form>
+    </section>
+
+    <!-- Right Column: Real-Time Telemetry Inspector -->
+    <section class="telemetry-grid">
+
+      <!-- Card 1: NLU Intent & Classification -->
+      <article class="telemetry-card">
+        <div class="card-title">
+          <span>🧠 النية المحددة (NLU Intent)</span>
+          <span class="badge badge-intent" id="intentBadge">INIT</span>
+        </div>
+        <div style="margin-bottom: 0.75rem;">
+          <p style="font-size: 0.8rem; color: var(--text-muted);">النموذج الصريح النشط:</p>
+          <p style="font-size: 0.95rem; font-weight: 600; color: var(--accent-cyan);" id="activeModelName">gemini-2.5-flash-lite</p>
+        </div>
+        <div>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">البيانات المستخرجة (Extracted Details):</p>
+          <div class="json-box" id="extractedDetailsBox">{}</div>
+        </div>
+      </article>
+
+      <!-- Card 2: Performance & Latency -->
+      <article class="telemetry-card">
+        <div class="card-title">
+          <span>⚡ زمن استجابة المحرك (Latency)</span>
+          <span class="badge" style="background: rgba(0,242,254,0.15); color: var(--accent-cyan);">PostgreSQL + Gemini</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-top: 0.5rem;">
+          <span class="metric-value" id="latencyValue">--</span>
+          <span class="metric-unit">ms (ملي ثانية)</span>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.75rem;">
+          استعلام الشواغر والحجز يتم عبر الفهارس المركبة بـ Postgres بـ 0% كاش و 0% هلوسة.
+        </p>
+      </article>
+
+      <!-- Card 3: Sliding Context Window (8 Messages) -->
+      <article class="telemetry-card" style="grid-column: span 2;">
+        <div class="card-title">
+          <span>🧠 النافذة المتزلقة لذاكرة المحادثة (Sliding Window Context Buffer - Max 8)</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted);" id="memoryCount">0 / 8 رسائل</span>
+        </div>
+        <div class="history-list" id="historyList">
+          <p style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1rem;">لا توجد رسائل مخزنة بالجلسة الحالية</p>
+        </div>
+      </article>
+
+      <!-- Card 4: Atomic Booking Trace -->
+      <article class="telemetry-card" style="grid-column: span 2;">
+        <div class="card-title">
+          <span>💎 تتبع الحجز الذري في Supabase (Postgres Trace)</span>
+          <span class="badge badge-booking" id="bookingCodeBadge">لا يوجد حجز بعد</span>
+        </div>
+        <div class="json-box" id="bookingTraceBox">// سيظهر كود الحجز وتفاصيل الجلسة فور تثبيت الموعد...</div>
+      </article>
+
+    </section>
+  </main>
+
+  <script>
+    async function handleSend(e) {
+      if (e) e.preventDefault();
+      const inputEl = document.getElementById('userInput');
+      const text = inputEl.value.trim();
+      if (!text) return;
+
+      const phone = document.getElementById('patientPhone').value.trim() || '07881015825';
+      
+      // Append user message bubble
+      appendMessage(text, 'user');
+      inputEl.value = '';
+
+      // Send REST request
+      try {
+        const res = await fetch('/api/test-chat/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, text })
+        });
+        
+        const data = await res.json();
+        if (data.success && data.telemetry) {
+          const t = data.telemetry;
+          appendMessage(t.botReply, 'bot');
+          updateTelemetryUI(t);
+        } else {
+          appendMessage('حدث خطأ أثناء معالجة الطلب', 'bot');
+        }
+      } catch (err) {
+        appendMessage('تعذر الاتصال بالسيرفر: ' + err.message, 'bot');
+      }
+    }
+
+    function sendQuickMsg(txt) {
+      document.getElementById('userInput').value = txt;
+      handleSend();
+    }
+
+    function appendMessage(text, role) {
+      const container = document.getElementById('chatMessages');
+      const bubble = document.createElement('div');
+      bubble.className = `msg-bubble msg-${role}`;
+      
+      const timeStr = new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
+      bubble.innerHTML = `${text}<div class="msg-time">${timeStr}</div>`;
+      
+      container.appendChild(bubble);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function updateTelemetryUI(t) {
+      // 1. Intent Badge & Extracted Details
+      document.getElementById('intentBadge').innerText = t.intent || 'GENERAL_CHAT';
+      document.getElementById('extractedDetailsBox').innerText = JSON.stringify(t.extractedDetails || {}, null, 2);
+      
+      // 2. Latency
+      document.getElementById('latencyValue').innerText = t.executionTimeMs || '--';
+
+      // 3. Sliding Memory (Max 8)
+      const historyList = document.getElementById('historyList');
+      const history = t.chatHistory || [];
+      document.getElementById('memoryCount').innerText = `${history.length} / 8 رسائل`;
+
+      if (history.length === 0) {
+        historyList.innerHTML = `<p style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1rem;">لا توجد رسائل مخزنة بالجلسة الحالية</p>`;
+      } else {
+        historyList.innerHTML = history.map(item => `
+          <div class="history-item ${item.role}">
+            <div class="history-role">${item.role === 'user' ? '👤 المريض' : '🤖 البوت (gemini-2.5-flash-lite)'}</div>
+            <div>${item.parts?.[0]?.text || ''}</div>
+          </div>
+        `).join('');
+      }
+
+      // 4. Booking Trace
+      const bookingBadge = document.getElementById('bookingCodeBadge');
+      const bookingTraceBox = document.getElementById('bookingTraceBox');
+
+      if (t.bookingResult) {
+        const b = t.bookingResult;
+        bookingBadge.innerText = `كود الحجز: ${b.booking_code}`;
+        bookingBadge.className = 'badge badge-booking';
+        bookingTraceBox.innerText = JSON.stringify({
+          booking_code: b.booking_code,
+          booking_id: b.booking_id,
+          patient_name: b.patient_name,
+          doctor_name: b.doctor_name,
+          service_name: b.service_name,
+          appointment_time: b.appointment_time,
+          status: b.booking_status
+        }, null, 2);
+      } else {
+        bookingBadge.innerText = 'بانتظار التأكيد...';
+        bookingBadge.className = 'badge badge-intent';
+        bookingTraceBox.innerText = `حالة الجلسة الحالية: ${t.sessionState}\nفي انتظار إدخال اسم المريض الثنائي لإصدار كود الحجز...`;
+      }
+    }
+  </script>
+</body>
+</html>
