@@ -1,4 +1,11 @@
-import { ClinicContext, AvailableSlot } from './booking.service';
+const fs = require('fs');
+
+if (fs.existsSync('src/routes/api.routes.ts')) {
+  fs.unlinkSync('src/routes/api.routes.ts');
+  console.log('✅ Deleted unused src/routes/api.routes.ts file');
+}
+
+const aiCode = `import { ClinicContext, AvailableSlot } from './booking.service';
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -104,9 +111,9 @@ export class AIService {
     }
 
     let replyText = (parsed.replyText || '')
-      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+      .replace(/[\\u{1F600}-\\u{1F64F}\\u{1F300}-\\u{1F5FF}\\u{1F680}-\\u{1F6FF}\\u{1F1E0}-\\u{1F1FF}\\u{2600}-\\u{26FF}\\u{2700}-\\u{27BF}]/gu, '')
       .replace(/[*#@$*_]/g, '')
-      .replace(/\n+/g, ' ')
+      .replace(/\\n+/g, ' ')
       .trim();
 
     const rawIntentStr = String(parsed.intent || '').toUpperCase();
@@ -129,3 +136,7 @@ export class AIService {
 }
 
 export const aiService = new AIService();
+`;
+
+fs.writeFileSync('src/services/ai.service.ts', aiCode, 'utf8');
+console.log('✅ Updated src/services/ai.service.ts');
