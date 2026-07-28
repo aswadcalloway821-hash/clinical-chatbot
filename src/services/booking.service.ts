@@ -408,7 +408,7 @@ export class BookingService {
       clinicContext: clinicCtx,
       bookingResult: createdBooking,
       executionTimeMs,
-      activeModel: 'gemini-2.5-flash-lite',
+      activeModel: 'gemini-3.1-flash-lite',
     };
   }
 }
