@@ -1,4 +1,6 @@
-import { ClinicContext, AvailableSlot } from './booking.service';
+const fs = require('fs');
+
+const aiCode = `import { ClinicContext, AvailableSlot } from './booking.service';
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -120,9 +122,9 @@ export class AIService {
     }
 
     let replyText = (parsed.replyText || '')
-      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+      .replace(/[\\u{1F600}-\\u{1F64F}\\u{1F300}-\\u{1F5FF}\\u{1F680}-\\u{1F6FF}\\u{1F1E0}-\\u{1F1FF}\\u{2600}-\\u{26FF}\\u{2700}-\\u{27BF}]/gu, '')
       .replace(/[*#@$*_]/g, '')
-      .replace(/\n+/g, ' ')
+      .replace(/\\n+/g, ' ')
       .trim();
 
     const rawIntentStr = String(parsed.intent || '').toUpperCase();
@@ -155,7 +157,7 @@ export class AIService {
     const isDental = /اسنان|أسنان|حشوة|تقويم|تنظيف/i.test(cleanText);
     const isBooking = /حجز|موعد|أحجز|احجز|اريد|أريد/i.test(cleanText);
     const isConfirm = /ثبت|تأكيد|تمام|اوكي|أوكي|ماشي|نعم|اي/i.test(cleanText);
-    const words = cleanText.split(/\s+/).filter(Boolean);
+    const words = cleanText.split(/\\s+/).filter(Boolean);
     const isName = words.length >= 2 && !isQuestion && !isBooking && !isConfirm;
 
     const docObj = isDental 
@@ -204,3 +206,7 @@ export class AIService {
 }
 
 export const aiService = new AIService();
+`;
+
+fs.writeFileSync('src/services/ai.service.ts', aiCode, 'utf8');
+console.log('✅ Updated src/services/ai.service.ts with multi-model retry & dynamic pure generator!');
