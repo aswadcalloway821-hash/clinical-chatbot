@@ -1,4 +1,6 @@
-import { supabase } from '../config/supabase';
+const fs = require('fs');
+
+const bookingCode = `import { supabase } from '../config/supabase';
 import { aiService, ChatMessage } from './ai.service';
 
 export interface PatientSession {
@@ -303,9 +305,9 @@ export class BookingService {
     const bookedTimes = new Set((existingBookings || []).map(b => new Date(b.appointment_time).toISOString()));
 
     // 5. البحث عن أول موعد شاغر بين 4 عصراً و 9 مساءً
-    let selectedSlotTime = `${dateStr}T16:00:00Z`;
+    let selectedSlotTime = \`\${dateStr}T16:00:00Z\`;
     for (let hour = 16; hour <= 20; hour++) {
-      const slotIso = new Date(`${dateStr}T${hour < 10 ? '0' + hour : hour}:00:00Z`).toISOString();
+      const slotIso = new Date(\`\${dateStr}T\${hour < 10 ? '0' + hour : hour}:00:00Z\`).toISOString();
       if (!bookedTimes.has(slotIso)) {
         selectedSlotTime = slotIso;
         break;
@@ -464,7 +466,7 @@ export class BookingService {
       const dayName = dateObj.toLocaleDateString('ar-IQ', { weekday: 'long' });
       const timeStr = dateObj.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
 
-      finalReply = `تدلل عيني تم تثبيت حجزك كود الحجز ${bookingResult.booking_code} باسم ${extractedName} عند ${bookingResult.doctor_name || 'د. سمر العبيدي'} موعدك ${dayName} ${timeStr} ننتظرك بالعيادة`;
+      finalReply = \`تدلل عيني تم تثبيت حجزك كود الحجز \${bookingResult.booking_code} باسم \${extractedName} عند \${bookingResult.doctor_name || 'د. سمر العبيدي'} موعدك \${dayName} \${timeStr} ننتظرك بالعيادة\`;
       nextState = 'CONFIRMED';
     } else if (aiResult.intent === 'REQUEST_BOOKING' || /احجز|أحجز|موعد|باجر/i.test(cleanText)) {
       const slot1 = await this.getNearestAvailableSlot(clinicId, aiResult.extractedDetails?.preferred_doctor, aiResult.extractedDetails?.preferred_service || cleanText, undefined, undefined, 1);
@@ -473,7 +475,7 @@ export class BookingService {
       const d1 = new Date(slot1.slot_time).toLocaleDateString('ar-IQ', { weekday: 'long' }) + ' ' + new Date(slot1.slot_time).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
       const d2 = new Date(slot2.slot_time).toLocaleDateString('ar-IQ', { weekday: 'long' }) + ' ' + new Date(slot2.slot_time).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
 
-      finalReply = `اهلاً بك عيني متوفر أقرب موعدين لـ ${slot1.service_name} مع ${slot1.doctor_name} هما ${d1} أو ${d2} أي يناسبك ودزلي اسمك الثنائي`;
+      finalReply = \`اهلاً بك عيني متوفر أقرب موعدين لـ \${slot1.service_name} مع \${slot1.doctor_name} هما \${d1} أو \${d2} أي يناسبك ودزلي اسمك الثنائي\`;
       nextState = 'SLOT_PROPOSED';
     }
 
@@ -498,3 +500,7 @@ export class BookingService {
 }
 
 export const bookingService = new BookingService();
+`;
+
+fs.writeFileSync('src/services/booking.service.ts', bookingCode, 'utf8');
+console.log('Successfully updated src/services/booking.service.ts with complete master fix!');
