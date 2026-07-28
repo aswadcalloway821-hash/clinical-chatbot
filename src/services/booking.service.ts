@@ -438,7 +438,7 @@ export class BookingService {
     const startTime = Date.now();
     const cleanText = (text || '').trim();
 
-    const resolvedClinic = await this.resolveClinicId(phone || clinicId);
+    const resolvedClinic = await this.resolveClinicId(clinicId || phone);
     const activeClinicId = resolvedClinic.clinic_id;
 
     const clinicCtx = await this.getClinicContext(activeClinicId);
@@ -458,6 +458,8 @@ export class BookingService {
     let finalReply = aiResult.replyText;
     let nextState = session.last_state;
     let bookingResult: BookingResult | undefined;
+    // رسالة مختصرة لحفظها في تاريخ المحادثة لمنع التلوث
+    let modelHistoryReply = finalReply;
 
     // 3. التنفيذ الخلفي بـ Supabase عند كشف نية التأكيد
     if (aiResult.intent === 'CONFIRM_BOOKING') {
@@ -478,9 +480,13 @@ export class BookingService {
           finalReply += ` كود الحجز الخاص بك ${bookingResult.booking_code}`;
         }
 
+        // حفظ رد مختصر في التاريخ بدلاً من نص التأكيد الكامل لمنع التلوث
+        modelHistoryReply = 'تم حجز موعدك في العيادة';
+
         await this.updatePatientProfileAndState(session.patient_id, session.session_id, extractedName, phone, nextState, history);
       } catch (err: any) {
         nextState = 'CONFIRMED';
+        modelHistoryReply = 'تم حجز موعدك في العيادة';
       }
     } else if (aiResult.intent === 'REQUEST_BOOKING') {
       nextState = 'SLOT_PROPOSED';
@@ -488,7 +494,7 @@ export class BookingService {
     }
 
     history.push({ role: 'user', parts: [{ text: cleanText }] });
-    history.push({ role: 'model', parts: [{ text: finalReply }] });
+    history.push({ role: 'model', parts: [{ text: modelHistoryReply }] });
     await this.updatePatientProfileAndState(session.patient_id, session.session_id, undefined, undefined, nextState, history);
 
     const executionTimeMs = Date.now() - startTime;
