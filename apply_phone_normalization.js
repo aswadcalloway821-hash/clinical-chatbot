@@ -1,4 +1,7 @@
-import { Router } from 'express';
+const fs = require('fs');
+
+// 1. Update webhook.routes.ts to use resolveClinicId and phone normalization
+const webhookCode = `import { Router } from 'express';
 import { whatsAppService } from '../services/whatsapp.service';
 import { bookingService } from '../services/booking.service';
 
@@ -40,7 +43,7 @@ router.post('/whatsapp', async (req: any, res: any) => {
       const rawPhone = message?.from;
       const textBody = message?.text?.body;
 
-      console.log(`💬 Incoming WhatsApp Message from [${rawPhone}]: "${textBody}"`);
+      console.log(\`💬 Incoming WhatsApp Message from [\${rawPhone}]: "\${textBody}"\`);
 
       // دقة تحديد العيادة بناءً على رقم القناة وحساب المريض
       const resolvedClinic = await bookingService.resolveClinicId(rawPhone);
@@ -64,3 +67,7 @@ router.post('/whatsapp', async (req: any, res: any) => {
 });
 
 export default router;
+`;
+
+fs.writeFileSync('src/routes/webhook.routes.ts', webhookCode, 'utf8');
+console.log('Successfully updated src/routes/webhook.routes.ts!');
