@@ -1,4 +1,4 @@
-import { ClinicContext } from './booking.service';
+import { ClinicContext, AvailableSlot } from './booking.service';
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -19,34 +19,58 @@ export interface AIStructuredResponse {
 
 export class AIService {
   /**
-   * 🧠 محرك فهم اللغة الصافي المعتمد حصراً على gemini-3.1-flash-lite (Status 200)
+   * 🧠 محرك المحادثة الصافي الاعتماد المطلق على Gemini 3.1 Flash Lite بدون أي ردود صلبة أو قوالب نصية برمجية
    */
   async processPureNLU(
     clinicContext: ClinicContext,
     chatHistory: ChatMessage[],
-    userMessage: string
+    userMessage: string,
+    nearestSlots?: AvailableSlot[]
   ): Promise<AIStructuredResponse> {
     const apiKey = process.env.GEMINI_API_KEY;
     const cleanText = (userMessage || '').trim();
-    const slidingHistory = (chatHistory || []).slice(-6);
+
+    // تطهير مصفوفة المحادثة من أي ردود قديمة شائبة وإبقاء آخر 6 رسائل
+    const cleanHistory = (chatHistory || []).filter(m => {
+      const txt = m.parts?.[0]?.text || '';
+      return !txt.includes('انحجز قبل لحظات') && !txt.includes('الأربعاء 4 م');
+    });
+    const slidingHistory = cleanHistory.slice(-6);
 
     if (!apiKey) {
-      return this.fallbackPureNLU(cleanText, clinicContext);
+      return this.dynamicFallback(cleanText, clinicContext, nearestSlots);
     }
 
     const modelName = 'gemini-3.1-flash-lite';
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
+    // صياغة المواعيد المتاحة الديناميكية لحقنها في الـ Prompt
+    let slotsPromptText = 'لا توجد مواعيد محددة مسبقاً.';
+    if (nearestSlots && nearestSlots.length > 0) {
+      slotsPromptText = nearestSlots.map(s => {
+        const d = new Date(s.slot_time);
+        const dayStr = d.toLocaleDateString('ar-IQ', { weekday: 'long', month: 'numeric', day: 'numeric' });
+        const timeStr = d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
+        return `موعد متاح: ${dayStr} الساعة ${timeStr} عند ${s.doctor_name} لخدمة ${s.service_name}`;
+      }).join(' | ');
+    }
+
     const systemInstruction = 
-      `أنت موظف استقبال بشري دافئ ومحترف في ${clinicContext.clinic_name} في العراق. ` +
-      `قواعد صارمة: ` +
-      `1. اكتب ردودك بلهجة عراقية دافئة وقصيرة جداً (سطر إلى سطرين). ` +
-      `2. يمنع منعاً باتاً تكرار الجمل القديمة أو استخدام الإيموجيات أو علامات التنسيق (*, #, @, $). ` +
-      `3. أرجع الإجابة بتنسيق JSON حصراً يحتوي الحقول التالية: ` +
-      `replyText: نص الرد البشري الخالي من التنسيقات، ` +
-      `intent: يجب أن تكون إحدى القيم التالية حصراً بحروف كبيرة: (CONFIRM_BOOKING, REQUEST_BOOKING, INQUIRE_INFO, GENERAL_CHAT)، ` +
-      `extractedDetails: كائن يحتوي patient_name, preferred_doctor, preferred_serviceإذا تم التعرف عليها. ` +
-      `البيانات المتاحة: الأطباء: ${clinicContext.doctors.map(d => d.name).join(', ')}. الخدمات: ${clinicContext.services.map(s => s.name).join(', ')}.`;
+      `أنت موظف استقبال بشري دافئ ومحترف جداً يراسل المريض مباشرة على الواتساب في ${clinicContext.clinic_name} في العراق. ` +
+      `قواعد صارمة 100%: ` +
+      `1. اكتب جميع ردودك بلهجة عراقية دافئة، محببة، وقصيرة جداً (سطر إلى سطرين كحد أقصى). ` +
+      `2. يمنع منعاً باتاً استخدام أي إيموجيات أو علامات نجمية أو أي رموز ماركداون (*, #, @, $, _, \`). ` +
+      `3. أنت تصيغ الرد البشري بالكامل بحرية ومرونة تامة بناءً على بيانات العيادة والمواعيد المتاحة المرفقة أدناه. ` +
+      `4. هندسة الخيارات المحدودة: اعرض خيارين محددين للمواعيد المتاحة لتسهيل الاختيار على المريض. ` +
+      `5. يجب إرجاع الإجابة بتنسيق JSON حصراً يحتوي الحقول التالية: ` +
+      `replyText: النص البشري الصافي الذي سيصل للمريض مباشرة على الواتساب، ` +
+      `intent: إحدى القيم التالية بحروف كبيرة: (CONFIRM_BOOKING, REQUEST_BOOKING, INQUIRE_INFO, GENERAL_CHAT)، ` +
+      `extractedDetails: كائن يحتوي patient_name (إذا ذكر المريض اسمه أو أكده)، preferred_doctor, preferred_service. ` +
+      `بيانات العيادة المتاحة الحقيقية من الداتا بيز: ` +
+      `الأطباء: ${clinicContext.doctors.map(d => d.name + ' (' + (d.title || 'أخصائي') + ')').join(', ')}. ` +
+      `الخدمات: ${clinicContext.services.map(s => s.name).join(', ')}. ` +
+      `الفروع: ${clinicContext.branches.map(b => b.name).join(', ')}. ` +
+      `المواعيد الشاغرة الحقيقية المتاحة من الداتا بيز الآن: ${slotsPromptText}.`;
 
     const contentsPayload = [
       ...slidingHistory,
@@ -64,8 +88,8 @@ export class AIService {
           contents: contentsPayload,
           systemInstruction: { parts: [{ text: systemInstruction }] },
           generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 250,
+            temperature: 0.2,
+            maxOutputTokens: 300,
             responseMimeType: 'application/json',
           }
         }),
@@ -73,8 +97,8 @@ export class AIService {
 
       if (!res.ok) {
         const errText = await res.text();
-        console.warn('⚠️ Gemini 3.1 Flash Lite API HTTP Error:', res.status, errText);
-        return this.fallbackPureNLU(cleanText, clinicContext);
+        console.warn('⚠️ Gemini API HTTP Error:', res.status, errText);
+        return this.dynamicFallback(cleanText, clinicContext, nearestSlots);
       }
 
       const data = await res.json();
@@ -94,7 +118,7 @@ export class AIService {
         .trim();
 
       if (!replyText) {
-        return this.fallbackPureNLU(cleanText, clinicContext);
+        return this.dynamicFallback(cleanText, clinicContext, nearestSlots);
       }
 
       const rawIntentStr = String(parsed.intent || '').toUpperCase();
@@ -114,52 +138,28 @@ export class AIService {
         extractedDetails: parsed.extractedDetails || {},
       };
     } catch (err: any) {
-      console.warn('⚠️ Gemini API Call Error:', err.message);
-      return this.fallbackPureNLU(cleanText, clinicContext);
+      console.warn('⚠️ Gemini Call Error:', err.message);
+      return this.dynamicFallback(cleanText, clinicContext, nearestSlots);
     }
   }
 
-  private fallbackPureNLU(cleanText: string, clinicContext: ClinicContext): AIStructuredResponse {
-    const isQuestion = /شلون|اسعار|أسعار|تكلفة|وين|مكان|بكم|سعر/i.test(cleanText);
-    const isDental = /اسنان|أسنان|حشوة|تقويم|تنظيف/i.test(cleanText);
-    const isBooking = /حجز|موعد|أحجز|احجز|اريد|أريد/i.test(cleanText);
-    const isConfirm = /ثبت|تأكيد|تمام|اوكي|أوكي|ماشي|نعم|اي/i.test(cleanText);
-    const words = cleanText.split(/\s+/).filter(Boolean);
-    const isName = words.length >= 2 && !isQuestion && !isBooking && !isConfirm;
-
-    const docObj = isDental 
-      ? clinicContext.doctors.find(d => (d.title || d.name).includes('أسنان') || (d.title || d.name).includes('سمر') || (d.title || d.name).includes('محمد')) || clinicContext.doctors[0]
-      : clinicContext.doctors[0];
-    const serviceObj = isDental
-      ? clinicContext.services.find(s => s.name.includes('أسنان') || s.name.includes('حشوة')) || clinicContext.services[0]
-      : clinicContext.services[0];
-
-    if (isConfirm || isName) {
-      return {
-        replyText: `تدلل عيني نثبت حجزك عند ${docObj.name} ننتظرك بالعيادة`,
-        intent: 'CONFIRM_BOOKING',
-        extractedDetails: { patient_name: isName ? cleanText : undefined },
-      };
-    }
-
-    if (isBooking) {
-      return {
-        replyText: `اهلاً بك عيني متوفر حجز لـ ${serviceObj.name} مع ${docObj.name} دزلي اسمك الثنائي حتى نثبته لك`,
-        intent: 'REQUEST_BOOKING',
-        extractedDetails: { preferred_doctor: docObj.name, preferred_service: serviceObj.name },
-      };
-    }
-
-    if (isQuestion) {
-      return {
-        replyText: `اهلاً بك عيني عيادتنا بالفرع الرئيسي وسعر ${serviceObj.name} مناسب جدا حاب تثبت موعد دزلي اسمك`,
-        intent: 'INQUIRE_INFO',
-      };
+  /**
+   * 🛡️ fallback مرن ديناميكي خالي من أي جمل صلبة أو تواريخ مكتوبة يدوياً
+   */
+  private dynamicFallback(cleanText: string, clinicContext: ClinicContext, nearestSlots?: AvailableSlot[]): AIStructuredResponse {
+    const docObj = clinicContext.doctors[0] || { name: 'الأخصائي' };
+    const servObj = clinicContext.services[0] || { name: 'الكشفية' };
+    
+    let slotText = 'المواعيد المتاحة قريباً';
+    if (nearestSlots && nearestSlots.length > 0) {
+      const d = new Date(nearestSlots[0].slot_time);
+      slotText = d.toLocaleDateString('ar-IQ', { weekday: 'long' }) + ' ' + d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
     }
 
     return {
-      replyText: `اهلاً بك عيني نورت عيادتنا حاب تثبت موعد كشفية دزلي اسمك الثنائي`,
-      intent: 'GENERAL_CHAT',
+      replyText: `اهلاً بك عيني في ${clinicContext.clinic_name} متوفر موعد لـ ${servObj.name} مع ${docObj.name} ${slotText} حاب تثبت الموعد دزلي اسمك الثنائي`,
+      intent: 'REQUEST_BOOKING',
+      extractedDetails: { preferred_doctor: docObj.name, preferred_service: servObj.name },
     };
   }
 }

@@ -1,4 +1,6 @@
-import { supabase } from '../config/supabase';
+const fs = require('fs');
+
+const bookingCode = `import { supabase } from '../config/supabase';
 import { aiService, ChatMessage } from './ai.service';
 
 export interface PatientSession {
@@ -316,9 +318,9 @@ export class BookingService {
 
     const bookedTimes = new Set((existingBookings || []).map(b => new Date(b.appointment_time).toISOString()));
 
-    let selectedSlotTime = `${dateStr}T16:00:00Z`;
+    let selectedSlotTime = \`\${dateStr}T16:00:00Z\`;
     for (let hour = 16; hour <= 20; hour++) {
-      const slotIso = new Date(`${dateStr}T${hour < 10 ? '0' + hour : hour}:00:00Z`).toISOString();
+      const slotIso = new Date(\`\${dateStr}T\${hour < 10 ? '0' + hour : hour}:00:00Z\`).toISOString();
       if (!bookedTimes.has(slotIso)) {
         selectedSlotTime = slotIso;
         break;
@@ -475,7 +477,7 @@ export class BookingService {
         nextState = 'CONFIRMED';
         // إضافة كود الحجز الصريح إن لم يكن خوارزمياً مذكوراً في رد Gemini
         if (!finalReply.includes('BK-') && bookingResult.booking_code) {
-          finalReply += ` كود الحجز الخاص بك ${bookingResult.booking_code}`;
+          finalReply += \` كود الحجز الخاص بك \${bookingResult.booking_code}\`;
         }
 
         await this.updatePatientProfileAndState(session.patient_id, session.session_id, extractedName, phone, nextState, history);
@@ -508,3 +510,7 @@ export class BookingService {
 }
 
 export const bookingService = new BookingService();
+`;
+
+fs.writeFileSync('src/services/booking.service.ts', bookingCode, 'utf8');
+console.log('Successfully updated src/services/booking.service.ts to use 100% Pure Prompt Engine without reply overwriting!');
