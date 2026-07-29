@@ -60,19 +60,15 @@ export class AIService {
             "قواعد صارمة 100%: " +
             "1. اكتب جميع ردودك بلهجة عراقية دافئة، محببة، وقصيرة جداً (سطر إلى سطرين كحد أقصى). " +
             "2. يمنع منعاً باتاً استخدام أي إيموجيات أو علامات نجمية أو أي رموز ماركداون (*, #, @, $, _). " +
-            "3. ضوابط النوايا والأسماء الصارمة: " +
-            "   - لا تصنف الرسالة كـ CONFIRM_BOOKING إطلاقاً إلا إذا وافق المريض صراحة على موعد أو أرسل اسمه الثنائي/الثلاثي الحقيقي. " +
-            "   - إذا كانت رسالة المريض كلاماً عاماً أو عتاباً أو سؤالاً مستغرباً (مثل: شنو سالفتك, منو انت, وين مكانكم), يجب تصنيفها كـ GENERAL_CHAT أو INQUIRE_INFO ويمنع منعاً باتاً اعتبار النص اسماً للمريض! " +
-            "   - يجب ألا تستخرج patient_name إلا إذا كان اسماً حقيقياً صريحاً لأحد الأشخاص (مثال: حسين علي, محمد جاسم). " +
-            "4. يجب إرجاع الإجابة بتنسيق JSON حصراً يحتوي الحقول التالية: " +
-            "replyText: النص البشري الصافي الذي سيصل للمريض مباشرة على الواتساب، " +
-            "intent: إحدى القيم التالية بحروف كبيرة: (CONFIRM_BOOKING, REQUEST_BOOKING, INQUIRE_INFO, GENERAL_CHAT)، " +
-            "extractedDetails: كائن يحتوي patient_name (فقط إذا ذكر اسماً حقيقياً صريحاً), preferred_doctor, preferred_service. " +
-            "بيانات العيادة المتاحة الحقيقية من الداتا بيز: " +
+            "3. ضوابط النوايا والأسماء الصارمة جداً: " +
+            "   - يمنع منعاً باتاً تصنيف الرسالة كـ CONFIRM_BOOKING إلا إذا كانت موافقة صريحة جداً أو اسماً شخصياً حقيقياً صريحاً (مثل: حسين علي المحمداوي, محمد جاسم). " +
+            "   - أي كلام عام أو استغراب أو سؤال (مثل: شنو سالفتك انت, منو انت, وين مكانكم, شنو السالفة, شكو), يجب أن يكون تصنيفه GENERAL_CHAT أو INQUIRE_INFO مع إرجاع extractedDetails فارغاً {}! " +
+            "4. أرجع JSON يحتوي: replyText, intent (CONFIRM_BOOKING, REQUEST_BOOKING, INQUIRE_INFO, GENERAL_CHAT), extractedDetails. " +
+            "بيانات العيادة المتاحة الحقيقية: " +
             "الأطباء: " + doctorsStr + ". " +
             "الخدمات: " + servicesStr + ". " +
             "الفروع: " + branchesStr + ". " +
-            "المواعيد الشاغرة الحقيقية المتاحة من الداتا بيز الآن: " + slotsPromptText + ".";
+            "المواعيد الشاغرة المتاحة الآن: " + slotsPromptText + ".";
 
           const contentsPayload = [
             ...slidingHistory,
@@ -104,9 +100,7 @@ export class AIService {
               break;
             }
           }
-        } catch (e) {
-          console.warn("⚠️ Gemini API Attempt Error:", e);
-        }
+        } catch (e) {}
       }
     }
 
@@ -127,13 +121,13 @@ export class AIService {
       .replace(/\n+/g, ' ')
       .trim();
 
-    const rawIntentStr = String(parsed.intent || '').toUpperCase();
-    let normalizedIntent: AIStructuredResponse['intent'] = 'GENERAL_CHAT';
-
     const extractedName = parsed.extractedDetails?.patient_name || '';
-    const isInvalidName = /سالفتك|سالفة|شنو|منو|انت|أنت|مكانكم|وين/i.test(extractedName) || /سالفتك|سالفة|منو انت|وين مكانكم/i.test(cleanText);
+    const isNonNamePhrase = /سالفتك|سالفة|شنو|منو|انت|أنت|مكانكم|وين|شكو|اخي|أخي|عيني|سلام|هلو|أهلاً|اهلاً|شكرا|شكراً/i.test(extractedName) || /سالفتك|سالفة|منو انت|وين مكانكم|شنو السالفة|شكو/i.test(cleanText);
 
-    if (!isInvalidName && (rawIntentStr.includes('CONFIRM') || rawIntentStr.includes('FIX') || rawIntentStr.includes('BOOKED'))) {
+    let normalizedIntent: AIStructuredResponse['intent'] = 'GENERAL_CHAT';
+    const rawIntentStr = String(parsed.intent || '').toUpperCase();
+
+    if (!isNonNamePhrase && (rawIntentStr.includes('CONFIRM') || rawIntentStr.includes('FIX') || rawIntentStr.includes('BOOKED'))) {
       normalizedIntent = 'CONFIRM_BOOKING';
     } else if (rawIntentStr.includes('REQUEST') || rawIntentStr.includes('SLOT') || rawIntentStr.includes('BOOK')) {
       normalizedIntent = 'REQUEST_BOOKING';
@@ -141,7 +135,7 @@ export class AIService {
       normalizedIntent = 'INQUIRE_INFO';
     }
 
-    if (isInvalidName && parsed.extractedDetails) {
+    if (isNonNamePhrase && parsed.extractedDetails) {
       delete parsed.extractedDetails.patient_name;
     }
 
@@ -161,9 +155,9 @@ export class AIService {
     const isDental = /اسنان|أسنان|حشوة|تقويم|تنظيف/i.test(cleanText);
     const isBooking = /حجز|موعد|أحجز|احجز|اريد|أريد/i.test(cleanText);
     const isConfirm = /ثبت|تأكيد|تمام|اوكي|أوكي|ماشي|نعم|اي/i.test(cleanText);
+    const isNonNamePhrase = /سالفتك|سالفة|شنو|منو|انت|أنت|مكانكم|وين|شكو/i.test(cleanText);
     const words = cleanText.split(/\s+/).filter(Boolean);
-    const isInvalidName = /سالفتك|سالفة|شنو|منو|انت|أنت|مكانكم|وين/i.test(cleanText);
-    const isName = words.length >= 2 && !isQuestion && !isBooking && !isConfirm && !isInvalidName;
+    const isName = words.length >= 2 && !isQuestion && !isBooking && !isConfirm && !isNonNamePhrase;
 
     const docObj = isDental 
       ? clinicContext.doctors.find(d => (d.title || d.name).includes('أسنان') || (d.title || d.name).includes('سمر') || (d.title || d.name).includes('محمد')) || clinicContext.doctors[0]
@@ -180,7 +174,7 @@ export class AIService {
       slotsText = day1Str + " الساعة " + time1Str;
     }
 
-    if (isConfirm || isName) {
+    if ((isConfirm || isName) && !isNonNamePhrase) {
       return {
         replyText: "تدلل عيني نثبت حجزك عند " + docObj.name + " ننتظرك بالعيادة",
         intent: 'CONFIRM_BOOKING',

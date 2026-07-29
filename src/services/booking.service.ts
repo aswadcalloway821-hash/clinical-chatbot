@@ -441,11 +441,10 @@ export class BookingService {
     let nextState = session.last_state;
     let bookingResult: BookingResult | undefined;
 
-    // فحص إضافي محصّن لمنع الحجوزات الوهمية إذا كان الاسم يحتوي جملة عامة
     const rawExtractedName = aiResult.extractedDetails?.patient_name || '';
-    const isInvalidName = /سالفتك|سالفة|شنو|منو|انت|أنت|مكانكم|وين/i.test(rawExtractedName) || /سالفتك|سالفة|منو انت|وين مكانكم/i.test(cleanText);
+    const isNonNamePhrase = /سالفتك|سالفة|شنو|منو|انت|أنت|مكانكم|وين|شكو|اخي|أخي|عيني|سلام|هلو|أهلاً|اهلاً|شكرا|شكراً/i.test(rawExtractedName) || /سالفتك|سالفة|منو انت|وين مكانكم|شنو السالفة|شكو/i.test(cleanText);
 
-    if (aiResult.intent === 'CONFIRM_BOOKING' && !isInvalidName) {
+    if (aiResult.intent === 'CONFIRM_BOOKING' && !isNonNamePhrase) {
       const extractedName = rawExtractedName || session.patient_name || 'المريض الفاضل';
 
       try {
@@ -469,6 +468,11 @@ export class BookingService {
     } else if (aiResult.intent === 'REQUEST_BOOKING') {
       nextState = 'SLOT_PROPOSED';
       await this.updatePatientProfileAndState(session.patient_id, session.session_id, undefined, undefined, nextState, history);
+    } else {
+      // إعادة الجلسة للوضع العادي عند الحديث العام
+      if (session.last_state === 'CONFIRMED') {
+        nextState = 'INIT';
+      }
     }
 
     history.push({ role: 'user', parts: [{ text: cleanText }] });
@@ -479,8 +483,8 @@ export class BookingService {
 
     return {
       botReply: finalReply,
-      intent: isInvalidName ? 'GENERAL_CHAT' : aiResult.intent,
-      extractedDetails: isInvalidName ? {} : (aiResult.extractedDetails || {}),
+      intent: isNonNamePhrase ? 'GENERAL_CHAT' : aiResult.intent,
+      extractedDetails: isNonNamePhrase ? {} : (aiResult.extractedDetails || {}),
       sessionState: nextState,
       chatHistory: history.slice(-6),
       clinicContext: clinicCtx,
