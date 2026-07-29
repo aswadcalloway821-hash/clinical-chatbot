@@ -259,9 +259,6 @@ export class BookingService {
     }
   }
 
-  /**
-   * 📅 5. جلب أقرب موعد متاح غير محجوز نهائياً لمنع خطأ Supabase RPC Slot already booked
-   */
   async getNearestAvailableSlot(
     clinicId: string,
     targetDoctorName?: string,
@@ -287,20 +284,16 @@ export class BookingService {
     let matchedOffering = context.offerings.find(o => o.doctor_id === matchedDoc.id) || context.offerings[0];
     let matchedServ = context.services.find(s => s.id === matchedOffering?.service_id) || context.services[0];
 
-    // جلب كافة المواعيد المحجوزة الحالية لمنع التعارض 100%
     const { data: existingBookings } = await supabase
       .from('bookings')
       .select('appointment_time')
       .eq('status', 'confirmed');
 
-    // تحويل جميع المواعيد المحجوزة إلى Epoch Milliseconds لمنع أي اختلاف في الصيغة الزمنية
     const bookedTimestamps = new Set(
       (existingBookings || []).map(b => new Date(b.appointment_time).getTime())
     );
 
     let foundSlotIso = '';
-    
-    // البحث عبر الأيام القادمة حتى إيجاد موعد غير محجوز 100%
     for (let dayAdd = offsetDays; dayAdd <= offsetDays + 14; dayAdd++) {
       const targetDateObj = new Date();
       targetDateObj.setDate(targetDateObj.getDate() + dayAdd);
@@ -333,9 +326,6 @@ export class BookingService {
     };
   }
 
-  /**
-   * ⚡ 6. تنفيذ الحجز الذري بـ Supabase
-   */
   async createAppointmentBooking(
     clinicId: string,
     patientId: string,
@@ -451,8 +441,12 @@ export class BookingService {
     let nextState = session.last_state;
     let bookingResult: BookingResult | undefined;
 
-    if (aiResult.intent === 'CONFIRM_BOOKING') {
-      const extractedName = aiResult.extractedDetails?.patient_name || session.patient_name || 'المريض الفاضل';
+    // فحص إضافي محصّن لمنع الحجوزات الوهمية إذا كان الاسم يحتوي جملة عامة
+    const rawExtractedName = aiResult.extractedDetails?.patient_name || '';
+    const isInvalidName = /سالفتك|سالفة|شنو|منو|انت|أنت|مكانكم|وين/i.test(rawExtractedName) || /سالفتك|سالفة|منو انت|وين مكانكم/i.test(cleanText);
+
+    if (aiResult.intent === 'CONFIRM_BOOKING' && !isInvalidName) {
+      const extractedName = rawExtractedName || session.patient_name || 'المريض الفاضل';
 
       try {
         bookingResult = await this.createAppointmentBooking(
@@ -485,8 +479,8 @@ export class BookingService {
 
     return {
       botReply: finalReply,
-      intent: aiResult.intent,
-      extractedDetails: aiResult.extractedDetails || {},
+      intent: isInvalidName ? 'GENERAL_CHAT' : aiResult.intent,
+      extractedDetails: isInvalidName ? {} : (aiResult.extractedDetails || {}),
       sessionState: nextState,
       chatHistory: history.slice(-6),
       clinicContext: clinicCtx,

@@ -60,12 +60,14 @@ export class AIService {
             "قواعد صارمة 100%: " +
             "1. اكتب جميع ردودك بلهجة عراقية دافئة، محببة، وقصيرة جداً (سطر إلى سطرين كحد أقصى). " +
             "2. يمنع منعاً باتاً استخدام أي إيموجيات أو علامات نجمية أو أي رموز ماركداون (*, #, @, $, _). " +
-            "3. أنت تصيغ الرد البشري بالكامل بحرية ومرونة تامة بناءً على بيانات العيادة والمواعيد المتاحة المرفقة أدناه. " +
-            "4. اعرض المواعيد الشاغرة المتاحة المرفقة لتسهيل الاختيار على المريض. " +
-            "5. يجب إرجاع الإجابة بتنسيق JSON حصراً يحتوي الحقول التالية: " +
+            "3. ضوابط النوايا والأسماء الصارمة: " +
+            "   - لا تصنف الرسالة كـ CONFIRM_BOOKING إطلاقاً إلا إذا وافق المريض صراحة على موعد أو أرسل اسمه الثنائي/الثلاثي الحقيقي. " +
+            "   - إذا كانت رسالة المريض كلاماً عاماً أو عتاباً أو سؤالاً مستغرباً (مثل: شنو سالفتك, منو انت, وين مكانكم), يجب تصنيفها كـ GENERAL_CHAT أو INQUIRE_INFO ويمنع منعاً باتاً اعتبار النص اسماً للمريض! " +
+            "   - يجب ألا تستخرج patient_name إلا إذا كان اسماً حقيقياً صريحاً لأحد الأشخاص (مثال: حسين علي, محمد جاسم). " +
+            "4. يجب إرجاع الإجابة بتنسيق JSON حصراً يحتوي الحقول التالية: " +
             "replyText: النص البشري الصافي الذي سيصل للمريض مباشرة على الواتساب، " +
             "intent: إحدى القيم التالية بحروف كبيرة: (CONFIRM_BOOKING, REQUEST_BOOKING, INQUIRE_INFO, GENERAL_CHAT)، " +
-            "extractedDetails: كائن يحتوي patient_name (إذا ذكر المريض اسمه أو أكده)، preferred_doctor, preferred_service. " +
+            "extractedDetails: كائن يحتوي patient_name (فقط إذا ذكر اسماً حقيقياً صريحاً), preferred_doctor, preferred_service. " +
             "بيانات العيادة المتاحة الحقيقية من الداتا بيز: " +
             "الأطباء: " + doctorsStr + ". " +
             "الخدمات: " + servicesStr + ". " +
@@ -87,7 +89,7 @@ export class AIService {
               contents: contentsPayload,
               systemInstruction: { parts: [{ text: systemInstruction }] },
               generationConfig: {
-                temperature: 0.2,
+                temperature: 0.1,
                 maxOutputTokens: 300,
                 responseMimeType: 'application/json',
               }
@@ -128,12 +130,19 @@ export class AIService {
     const rawIntentStr = String(parsed.intent || '').toUpperCase();
     let normalizedIntent: AIStructuredResponse['intent'] = 'GENERAL_CHAT';
 
-    if (rawIntentStr.includes('CONFIRM') || rawIntentStr.includes('FIX') || rawIntentStr.includes('BOOKED')) {
+    const extractedName = parsed.extractedDetails?.patient_name || '';
+    const isInvalidName = /سالفتك|سالفة|شنو|منو|انت|أنت|مكانكم|وين/i.test(extractedName) || /سالفتك|سالفة|منو انت|وين مكانكم/i.test(cleanText);
+
+    if (!isInvalidName && (rawIntentStr.includes('CONFIRM') || rawIntentStr.includes('FIX') || rawIntentStr.includes('BOOKED'))) {
       normalizedIntent = 'CONFIRM_BOOKING';
     } else if (rawIntentStr.includes('REQUEST') || rawIntentStr.includes('SLOT') || rawIntentStr.includes('BOOK')) {
       normalizedIntent = 'REQUEST_BOOKING';
-    } else if (rawIntentStr.includes('INQUIR') || rawIntentStr.includes('PRICE') || rawIntentStr.includes('LOCATION') || rawIntentStr.includes('INFO')) {
+    } else if (rawIntentStr.includes('INQUIR') || rawIntentStr.includes('PRICE') || rawIntentStr.includes('LOCATION') || rawIntentStr.includes('INFO') || /وين|مكان/i.test(cleanText)) {
       normalizedIntent = 'INQUIRE_INFO';
+    }
+
+    if (isInvalidName && parsed.extractedDetails) {
+      delete parsed.extractedDetails.patient_name;
     }
 
     return {
@@ -143,9 +152,6 @@ export class AIService {
     };
   }
 
-  /**
-   * 🌟 توليد الاستجابة البشرية الديناميكية النقية القائمة على حقائق العيادة والمواعيد المتاحة
-   */
   private generateDynamicPureResponse(
     cleanText: string,
     clinicContext: ClinicContext,
@@ -156,7 +162,8 @@ export class AIService {
     const isBooking = /حجز|موعد|أحجز|احجز|اريد|أريد/i.test(cleanText);
     const isConfirm = /ثبت|تأكيد|تمام|اوكي|أوكي|ماشي|نعم|اي/i.test(cleanText);
     const words = cleanText.split(/\s+/).filter(Boolean);
-    const isName = words.length >= 2 && !isQuestion && !isBooking && !isConfirm;
+    const isInvalidName = /سالفتك|سالفة|شنو|منو|انت|أنت|مكانكم|وين/i.test(cleanText);
+    const isName = words.length >= 2 && !isQuestion && !isBooking && !isConfirm && !isInvalidName;
 
     const docObj = isDental 
       ? clinicContext.doctors.find(d => (d.title || d.name).includes('أسنان') || (d.title || d.name).includes('سمر') || (d.title || d.name).includes('محمد')) || clinicContext.doctors[0]
