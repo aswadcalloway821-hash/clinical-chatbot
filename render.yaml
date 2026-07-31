@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: sara-digital-clinic-bot
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.1-flash-lite
+      - key: GOOGLE_SHEET_ID
+        value: 1bBQWg3iZkVF4meUr0sT6-z-wW2JSrqL1HQSOlpyJCMo
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        value: clinic_webhook_verify_token_2026
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        value: 1152563204613662
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
