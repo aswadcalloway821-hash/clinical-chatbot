@@ -28,8 +28,7 @@ export class HandoffManager {
   public static executeHandoff(session: PatientSession, tenant: TenantConfig): string {
     session.currentState = 'HUMAN_HANDOFF';
     
-    return `أعتذر منك أستاذي العزيز، راح أحول محادثتك فوراً للسكرتارية البشرية لمساعدتك بكل تفاصيل طلبك.
-تفضل رقم السكرتير المباشر: ${tenant.secretaryPhone}
-وسيعاود التواصل وياك بأسرع وقت، نورتنا بمركز ${tenant.clinicName}.`;
+    return `تمام عيني، راح أحول محادثتك فوراً للسكرتير لمساعدتك بالشكل المطلوب.
+تفضل رقم التواصل المباشر: ${tenant.secretaryPhone}`;
   }
 }

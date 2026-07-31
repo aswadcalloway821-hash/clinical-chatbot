@@ -1,46 +1,47 @@
-import { google } from 'googleapis';
 import { Booking, Doctor } from '../types/booking.js';
 
 export class GoogleCalendarService {
-  private static auth: any = null;
+  /**
+   * Fetch Access Token dynamically from Google OAuth2 Refresh Token
+   */
+  private static async getAccessToken(): Promise<string | null> {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
-  private static getAuthClient() {
-    if (!this.auth) {
-      try {
-        const clientId = process.env.GOOGLE_CLIENT_ID;
-        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-        const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+    if (!clientId || !clientSecret || !refreshToken) return null;
 
-        if (clientId && clientSecret && refreshToken) {
-          const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-          oauth2Client.setCredentials({ refresh_token: refreshToken });
-          this.auth = oauth2Client;
-        } else {
-          const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS || './google-creds.json';
-          this.auth = new google.auth.GoogleAuth({
-            keyFile,
-            scopes: ['https://www.googleapis.com/auth/calendar']
-          });
-        }
-      } catch (err) {
-        console.warn('Google Calendar Credentials not provided yet.');
-      }
+    try {
+      const res = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token'
+        })
+      });
+
+      const data = await res.json() as any;
+      return data.access_token || null;
+    } catch {
+      return null;
     }
-    return this.auth;
   }
 
   /**
-   * Sync confirmed booking directly into doctor's Google Calendar
+   * Sync confirmed booking directly into doctor's Google Calendar via Google Calendar REST API v3
    */
   public static async syncAppointment(booking: Booking, doctor: Doctor): Promise<string | null> {
     try {
-      const auth = this.getAuthClient();
-      if (!auth) return null;
+      const token = await this.getAccessToken();
+      if (!token) return null;
 
-      const calendar = google.calendar({ version: 'v3', auth });
       const calendarId = doctor.calendarId || 'primary';
+      const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
 
-      const startDateTime = `${booking.date}T${booking.startTime}:00+03:00`; // Baghdad Time (GMT+3)
+      const startDateTime = `${booking.date}T${booking.startTime}:00+03:00`;
       const endDateTime = `${booking.date}T${booking.endTime}:00+03:00`;
 
       const event = {
@@ -50,15 +51,23 @@ export class GoogleCalendarService {
         end: { dateTime: endDateTime, timeZone: 'Asia/Baghdad' }
       };
 
-      const res = await calendar.events.insert({
-        calendarId,
-        requestBody: event
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(event)
       });
 
-      console.log(`[Google Calendar] Event synced: ${res.data.id}`);
-      return res.data.id || null;
+      const data = await res.json() as any;
+      if (res.ok) {
+        console.log(`[Google Calendar REST API] Synced event: ${data.id}`);
+        return data.id || null;
+      }
+      return null;
     } catch (error) {
-      console.warn('[Google Calendar Sync Warning]: Offline mode or credentials pending.');
+      console.warn('[Google Calendar Sync Warning]:', error);
       return null;
     }
   }

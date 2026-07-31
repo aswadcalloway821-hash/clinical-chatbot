@@ -24,23 +24,28 @@ app.get('/health', (req, res) => {
 
 // Initialize Watchdog & Revenue Recovery
 (async () => {
-  const tenant = await GoogleSheetsService.getTenantConfig();
-  
-  // Register WhatsApp sender callback for Watchdog
-  WatchdogService.registerSendCallback(async (phone: string, text: string) => {
-    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const token = process.env.WHATSAPP_ACCESS_TOKEN;
-    if (phoneId && token) {
-      await fetch(`https://graph.facebook.com/v18.0/${phoneId}/messages`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: text } })
-      });
-    }
-  });
+  try {
+    const tenant = await GoogleSheetsService.getTenantConfig();
+    console.log(`[Tenant Loaded Successfully]: Clinic = "${tenant.clinicName}", Branches = ${tenant.branches.map(b => b.name).join(', ')}`);
 
-  WatchdogService.startMonitoring(FsmStateManager.getSessionsStore(), tenant);
-  console.log('[Watchdog Service] Started session monitor worker with Live WhatsApp Dispatcher.');
+    // Register WhatsApp sender callback for Watchdog
+    WatchdogService.registerSendCallback(async (phone: string, text: string) => {
+      const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+      const token = process.env.WHATSAPP_ACCESS_TOKEN;
+      if (phoneId && token) {
+        await fetch(`https://graph.facebook.com/v18.0/${phoneId}/messages`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: text } })
+        });
+      }
+    });
+
+    WatchdogService.startMonitoring(FsmStateManager.getSessionsStore(), tenant);
+    console.log('[Watchdog Service] Started session monitor worker with Live WhatsApp Dispatcher.');
+  } catch (err) {
+    console.error('🚨 [Startup Error Loading Tenant Config]:', err);
+  }
 })();
 
 app.listen(PORT, () => {

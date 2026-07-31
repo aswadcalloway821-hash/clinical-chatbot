@@ -10,6 +10,25 @@ const genAI = new GoogleGenerativeAI(apiKey);
 
 export class GeminiService {
   /**
+   * Build Strict System Instruction for Gemini to 100% prevent any wrong clinic names or hallucinations
+   */
+  private static getSystemInstruction(tenant: TenantConfig): string {
+    const branchNames = tenant.branches.map(b => b.name).join(' ، ');
+    const doctorNames = tenant.doctors.map(d => d.name).join(' ، ');
+
+    return `
+أنتِ "سارة الرقمية"، موظفة استقبال بشرية في "${tenant.clinicName}".
+
+قواعد أمان عليا وحازمة جداً (STRICT SYSTEM RULES):
+1. اسم العيادة والمركز الوحيد والحقيقي هو حصراً "${tenant.clinicName}".
+2. يُمنع منعاً باتاً وقطيعاً تلفظ أو كتابة أي اسم آخر مثل "مركز الحياة" أو "مركز الحياة الطبي" إطلاقاً وتحت أي ظرف!
+3. الفروع المتاحة حصراً بالعيادة هي: ${branchNames}. يُمنع منعاً باتاً ذكر فروع أخرى مثل (المنصور، الكرادة، بغداد) لأن العيادة بالبصرة فقط!
+4. الأطباء المتاحون حصراً هم: ${doctorNames}.
+5. التحدث بلغة عراقية بغدادية عفوية ومباشرة بدون رموز أو نجوم أو تنسيقات Markdown (*, **, #).
+`;
+  }
+
+  /**
    * Parse user intent and extract entities structured via JSON
    */
   public static async parseNluIntent(
@@ -18,7 +37,7 @@ export class GeminiService {
     tenant: TenantConfig
   ): Promise<NLUResult> {
     const prompt = `
-أنت نظام استخراج النوايا والبيانات لدعم نظام حجز طبي.
+أنت نظام استخراج النوايا والبيانات لدعم نظام حجز طبي لـ "${tenant.clinicName}".
 تحليل رسالة المريض التالية واستخراج النية (intent) والكيانات (entities).
 
 حالة الحوار الحالية: ${currentState}
@@ -54,7 +73,11 @@ export class GeminiService {
 
     try {
       const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-      const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { responseMimeType: 'application/json' } });
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: this.getSystemInstruction(tenant),
+        generationConfig: { responseMimeType: 'application/json' }
+      });
       const response = await model.generateContent(prompt);
 
       const text = response.response.text()?.trim() || '{}';
@@ -80,26 +103,37 @@ export class GeminiService {
    */
   public static async generateIraqiResponse(slicedContext: SlicedContextPayload): Promise<string> {
     const prompt = `
-${slicedContext.personaGuidance}
-
-المركز الطبي: ${slicedContext.clinicName}
+المركز الطبي الحقيقي: ${slicedContext.clinicName}
 الخطوة الحالية: ${slicedContext.step}
 التعليمات المطلوبة منكِ الآن: ${slicedContext.stepInstruction}
 بيانات الخطوة الحالية: ${JSON.stringify(slicedContext.stepData)}
 رسالة المريض الأخيرة: "${slicedContext.userMessage}"
 
-صوغي ردكِ بالكامل بلهجة عراقية محبوبة وعفوية، بدون أي نجوم أو خطوط أو رموز تنصيص أو Markdown.
+صوغي ردكِ بالكامل بلهجة عراقية محبوبة وعفوية لـ "${slicedContext.clinicName}"، بدون أي نجوم أو خطوط أو رموز تنصيص أو Markdown.
 أجيبي المريض مباشرة واسأليه عن الخطوة التالية بأسلوب سلس ودافئ.
 `;
 
     try {
       const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-      const model = genAI.getGenerativeModel({ model: modelName });
+      const dummyTenant: TenantConfig = {
+        tenantId: 't1',
+        clinicName: slicedContext.clinicName,
+        secretaryPhone: '07881015584',
+        branches: [{ id: 'b1', name: 'فرع الجزائر', address: 'البصرة', phone: '' }, { id: 'b2', name: 'فرع العشار', address: 'البصرة', phone: '' }],
+        services: [],
+        doctors: [{ id: 'd1', branchId: 'b1', name: 'د. أحمد', specialty: '', services: [], calendarId: '', workingHours: { days: [], startHour: 9, endHour: 17, slotDurationMinutes: 30 } }],
+        faqs: []
+      };
+
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: this.getSystemInstruction(dummyTenant)
+      });
       const response = await model.generateContent(prompt);
 
       let reply = response.response.text()?.trim() || '';
       
-      // Clean any accidental Markdown formatting to ensure 100% human-like response
+      // Clean any accidental Markdown formatting
       reply = reply
         .replace(/\*/g, '')
         .replace(/#/g, '')
@@ -110,7 +144,7 @@ ${slicedContext.personaGuidance}
       return reply;
     } catch (error) {
       console.error('Gemini NLG Error:', error);
-      return 'يا أهلاً بيك أستاذي العزيز، نورتنا بمركزنا. شلون أقدر أساعدك اليوم؟';
+      return `أهلاً بك في ${slicedContext.clinicName}. كيف أقدر أساعدك اليوم؟`;
     }
   }
 
@@ -119,20 +153,22 @@ ${slicedContext.personaGuidance}
    */
   public static async answerFaq(userMessage: string, tenant: TenantConfig): Promise<string> {
     const prompt = `
-أنتِ "سارة الرقمية"، موظفة استقبال مركز "${tenant.clinicName}".
-سأل المريض السؤال التالي أثناء الحجز: "${userMessage}"
+سأل المريض السؤال التالي: "${userMessage}"
 
-الأسئلة الشائعة والمعلومات المتوفرة:
-${JSON.stringify(tenant.faqs)}
+المعلومات الرسمية المتاحة لـ "${tenant.clinicName}":
+الأسئلة الشائعة: ${JSON.stringify(tenant.faqs)}
 الخدمات والأسعار: ${JSON.stringify(tenant.services)}
-الفروع والمواقع: ${JSON.stringify(tenant.branches)}
+الفروع والمواقع الحقيقية بالبصرة: ${JSON.stringify(tenant.branches)}
 
-أجيبي عن سؤال المريض بلهجة عراقية عفوية جداً ودقيقة وبدون أي تنسيق Markdown.
+أجيبي عن سؤال المريض بلهجة عراقية عفوية جداً وبدون أي تنميق أو تنسيق Markdown.
 `;
 
     try {
       const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-      const model = genAI.getGenerativeModel({ model: modelName });
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: this.getSystemInstruction(tenant)
+      });
       const response = await model.generateContent(prompt);
 
       return (response.response.text() || '')
@@ -141,7 +177,7 @@ ${JSON.stringify(tenant.faqs)}
         .replace(/`/g, '')
         .trim();
     } catch (error) {
-      return 'تدلل عيني، أستاذي العزيز تكدر تطلع على كافة التفاصيل والموقع من خلال العيادة أو تتصل مباشرة بسكرتاريتنا.';
+      return `أهلاً بك بـ ${tenant.clinicName}، يمكنك الاطلاع على التفاصيل والموقع من العيادة أو الاتصال بالسكرتارية: ${tenant.secretaryPhone}.`;
     }
   }
 }

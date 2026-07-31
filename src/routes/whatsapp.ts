@@ -4,6 +4,23 @@ import { GoogleSheetsService } from '../services/google-sheets.js';
 
 const router = Router();
 
+// 1. Deduplication Set for message.id (wamid) to prevent double processing on Meta retries
+const processedMessageIds = new Set<string>();
+
+// Clean old message IDs every 15 minutes to keep memory footprint minimal
+setInterval(() => {
+  if (processedMessageIds.size > 5000) {
+    processedMessageIds.clear();
+  }
+}, 15 * 60 * 1000);
+
+// 2. Multi-Message Debounce Buffer (2.5 seconds) per phone number
+interface UserMessageBuffer {
+  messages: string[];
+  timer: NodeJS.Timeout;
+}
+const userBuffers = new Map<string, UserMessageBuffer>();
+
 /**
  * WhatsApp Webhook Verification
  */
@@ -12,7 +29,7 @@ router.get('/webhook', (req: Request, res: Response) => {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'sara_digital_clinic_verify_secret_2026';
+  const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'clinic_webhook_verify_token_2026';
 
   if (mode && token === VERIFY_TOKEN) {
     console.log('[WhatsApp Webhook] Verified successfully!');
@@ -25,36 +42,113 @@ router.get('/webhook', (req: Request, res: Response) => {
 /**
  * Receive Incoming WhatsApp Messages
  */
-router.post('/webhook', async (req: Request, res: Response) => {
+router.post('/webhook', (req: Request, res: Response) => {
   try {
     const body = req.body;
 
     if (body.object === 'whatsapp_business_account') {
+      // MECHANISM 1: Immediate ACK (HTTP 200 OK within 5ms to Meta)
+      res.status(200).json({ status: 'success' });
+
       const entry = body.entry?.[0];
       const changes = entry?.changes?.[0];
       const value = changes?.value;
       const message = value?.messages?.[0];
 
       if (message && message.type === 'text') {
+        const messageId = message.id;
         const fromPhone = message.from;
         const messageText = message.text.body;
 
-        const tenant = await GoogleSheetsService.getTenantConfig();
-        const replyText = await FsmStateManager.processMessage(fromPhone, messageText, tenant);
+        // MECHANISM 2: Deduplication Set check
+        if (processedMessageIds.has(messageId)) {
+          console.log(`[Webhook Deduplication] Ignored duplicate message ID: ${messageId}`);
+          return;
+        }
+        processedMessageIds.add(messageId);
 
-        console.log(`[WhatsApp Bot Reply to ${fromPhone}]: ${replyText}`);
-
-        // Send real WhatsApp message back via Meta Cloud API
-        await sendWhatsAppCloudMessage(fromPhone, replyText);
+        // MECHANISM 3: 2.5s Multi-Message Debounce Buffer
+        enqueueMessageForProcessing(fromPhone, messageText);
       }
-
-      return res.status(200).json({ status: 'success' });
+      return;
     }
 
     return res.sendStatus(404);
   } catch (error) {
     console.error('[WhatsApp Webhook Error]:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  }
+});
+
+/**
+ * Debounce Buffer Worker: Collects consecutive messages sent within 2.5 seconds
+ */
+function enqueueMessageForProcessing(fromPhone: string, messageText: string) {
+  const DEBOUNCE_TIME_MS = 2500; // 2.5 seconds
+
+  const existingBuffer = userBuffers.get(fromPhone);
+
+  if (existingBuffer) {
+    clearTimeout(existingBuffer.timer);
+    existingBuffer.messages.push(messageText);
+
+    existingBuffer.timer = setTimeout(async () => {
+      // 1. Extract messages & delete buffer immediately BEFORE starting async processing
+      const messagesToProcess = [...existingBuffer.messages];
+      userBuffers.delete(fromPhone);
+
+      await processAggregatedUserMessages(fromPhone, messagesToProcess);
+    }, DEBOUNCE_TIME_MS);
+
+    console.log(`[Debounce Buffer] Appended message from ${fromPhone}. Buffer size: ${existingBuffer.messages.length}`);
+  } else {
+    const newBuffer: UserMessageBuffer = {
+      messages: [messageText],
+      timer: setTimeout(async () => {
+        // 1. Extract messages & delete buffer immediately BEFORE starting async processing
+        const messagesToProcess = [...newBuffer.messages];
+        userBuffers.delete(fromPhone);
+
+        await processAggregatedUserMessages(fromPhone, messagesToProcess);
+      }, DEBOUNCE_TIME_MS)
+    };
+    userBuffers.set(fromPhone, newBuffer);
+    console.log(`[Debounce Buffer] Started 2.5s timer for ${fromPhone}`);
+  }
+}
+
+/**
+ * Process Aggregated Messages with FSM & Gemini Engine
+ */
+async function processAggregatedUserMessages(fromPhone: string, messages: string[]) {
+  const combinedText = messages.join(' ');
+  console.log(`[Processing Aggregated Messages for ${fromPhone}]: "${combinedText}"`);
+
+  try {
+    const tenant = await GoogleSheetsService.getTenantConfig();
+    const replyText = await FsmStateManager.processMessage(fromPhone, combinedText, tenant);
+
+    console.log(`[WhatsApp Bot Reply to ${fromPhone}]: ${replyText}`);
+    await sendWhatsAppCloudMessage(fromPhone, replyText);
+  } catch (error: any) {
+    // Developer Error Alerting & Patient Holding Response
+    console.error(`🚨 [DEVELOPER ALERT - CRITICAL ERROR ON PHONE ${fromPhone}]:`, error?.stack || error);
+    const patientHoldingMessage = 'العفو، ممكن تنتظرني دقائق وارجع ارد عليك؟';
+    await sendWhatsAppCloudMessage(fromPhone, patientHoldingMessage);
+  }
+}
+
+/**
+ * Debug Endpoint to inspect live tenant config on Render
+ */
+router.get('/api/tenant-debug', async (req: Request, res: Response) => {
+  try {
+    const tenant = await GoogleSheetsService.getTenantConfig();
+    return res.json({ status: 'ok', tenant });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || err });
   }
 });
 

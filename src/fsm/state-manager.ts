@@ -21,6 +21,24 @@ export class FsmStateManager {
     messageText: string,
     tenant: TenantConfig
   ): Promise<string> {
+    // Explicit Reset Trigger: ONLY reset session when user explicitly writes "تصفير" or "ريست" or "reset"
+    const isExplicitReset = /^(تصفير|ريست|reset|إعادة ضبط)$/i.test(messageText.trim());
+
+    if (isExplicitReset) {
+      this.sessions.delete(phone);
+      const patientTag = await GoogleSheetsService.getPatientHistoryTag(phone);
+      const newSession: PatientSession = {
+        phoneNumber: phone,
+        tenantId: tenant.tenantId,
+        currentState: 'GREETING',
+        patientTag,
+        failedNluAttempts: 0,
+        lastInteractionTime: Date.now()
+      };
+      this.sessions.set(phone, newSession);
+      return `تم تصفير المحادثة وإعادة الضبط بنجاح عيني. أهلاً بك في ${tenant.clinicName}. كيف أقدر أساعدك اليوم؟`;
+    }
+
     let session = this.sessions.get(phone);
 
     if (!session) {
@@ -45,20 +63,24 @@ export class FsmStateManager {
       tenant
     );
 
-    // 2. Check for Human Handoff trigger
-    if (HandoffManager.shouldTriggerHandoff(session, nluResult.intent, nluResult.confidence)) {
+    // 2. Check for Human Handoff trigger (Immediate transfer on Complaint / Anger / Human Request)
+    if (
+      nluResult.intent === 'REQUEST_HUMAN' ||
+      nluResult.intent === 'ANGRY_EXPRESSION' ||
+      HandoffManager.shouldTriggerHandoff(session, nluResult.intent, nluResult.confidence)
+    ) {
       return HandoffManager.executeHandoff(session, tenant);
     }
 
-    // 3. Freeze & Resume Protocol (Handle side questions e.g. Prices/Location)
+    // 3. Freeze & Resume Protocol (General FAQ Inquiries only)
     if (nluResult.intent === 'ASK_FAQ') {
       const faqAnswer = await GeminiService.answerFaq(messageText, tenant);
       
-      // Resume instruction for current state
+      // Resume instruction for current state without repeating greetings
       const sliced = ContextSlicer.slice(session, tenant, messageText);
       const resumePrompt = await GeminiService.generateIraqiResponse(sliced);
 
-      return `${faqAnswer}\n\nنكمل حجزك عيني؟ ${resumePrompt}`;
+      return `${faqAnswer}\n${resumePrompt}`;
     }
 
     // 4. FSM State Transition Engine
