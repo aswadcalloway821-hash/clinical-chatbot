@@ -36,16 +36,18 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const message = value?.messages?.[0];
 
       if (message && message.type === 'text') {
-        const fromPhone = message.from;
-        const messageText = message.text.body;
+        const fromPhone = String(message.from).replace(/[^\d]/g, '');
+        const rawText = String(message.text.body || '').trim().substring(0, 1000); // Sanitize and cap length
 
-        const tenant = await GoogleSheetsService.getTenantConfig();
-        const replyText = await FsmStateManager.processMessage(fromPhone, messageText, tenant);
+        if (fromPhone && rawText) {
+          const tenant = await GoogleSheetsService.getTenantConfig();
+          const replyText = await FsmStateManager.processMessage(fromPhone, rawText, tenant);
 
-        console.log(`[WhatsApp Bot Reply to ${fromPhone}]: ${replyText}`);
+          console.log(`[WhatsApp Production Bot] Responding to ${fromPhone}`);
 
-        // Send real WhatsApp message back via Meta Cloud API
-        await sendWhatsAppCloudMessage(fromPhone, replyText);
+          // Send real WhatsApp message back via Meta Cloud API
+          await sendWhatsAppCloudMessage(fromPhone, replyText);
+        }
       }
 
       return res.status(200).json({ status: 'success' });
