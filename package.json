@@ -2,11 +2,11 @@
   "name": "sara-digital-clinic-whatsapp-bot",
   "version": "1.0.0",
   "description": "Multi-Tenant AI-Powered WhatsApp Booking Platform for Clinics using Gemini AI, Google Sheets, and Google Calendar",
-  "main": "src/app.ts",
+  "main": "dist/app.js",
   "type": "module",
   "scripts": {
-    "build": "echo Build complete",
-    "start": "npx tsx src/app.ts",
+    "build": "npx esbuild src/app.ts --bundle --platform=node --format=esm --outdir=dist --packages=external",
+    "start": "node dist/app.js",
     "dev": "tsx watch src/app.ts",
     "test": "npx tsx src/test/fsm.test.ts"
   },
@@ -34,6 +34,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.10",
+    "esbuild": "^0.28.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }
