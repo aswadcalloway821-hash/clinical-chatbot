@@ -1,7 +1,4 @@
 node_modules/
 dist/
 .env
-google-creds.json
-service-account.json
-.system_generated/
 *.log
