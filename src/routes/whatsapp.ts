@@ -91,7 +91,7 @@ router.post('/webhook', (req: Request, res: Response) => {
  * Debounce Buffer Worker: Collects consecutive messages sent within 2.5 seconds
  */
 function enqueueMessageForProcessing(fromPhone: string, messageText: string) {
-  const DEBOUNCE_TIME_MS = 3000; // 3 seconds debounce buffer
+  const DEBOUNCE_TIME_MS = 5000; // 5 seconds debounce buffer
 
   const existingBuffer = userBuffers.get(fromPhone);
 

@@ -431,7 +431,7 @@ export class GoogleSheetsService {
         body: JSON.stringify({ values })
       });
       if (res.ok) {
-        console.log(`[Google Sheets API] Logged complaint for ${patientName}`);
+        console.log(`[Google Sheets API] Logged complaint for ${cleanName}`);
       }
     } catch (err) {
       console.warn('[Google Sheets Complaint Warning]:', err);

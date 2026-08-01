@@ -816,7 +816,7 @@ var GoogleSheetsService = class {
         body: JSON.stringify({ values })
       });
       if (res.ok) {
-        console.log(`[Google Sheets API] Logged complaint for ${patientName}`);
+        console.log(`[Google Sheets API] Logged complaint for ${cleanName}`);
       }
     } catch (err) {
       console.warn("[Google Sheets Complaint Warning]:", err);
@@ -1456,7 +1456,7 @@ router.post("/webhook", (req, res) => {
   }
 });
 function enqueueMessageForProcessing(fromPhone, messageText) {
-  const DEBOUNCE_TIME_MS = 3e3;
+  const DEBOUNCE_TIME_MS = 5e3;
   const existingBuffer = userBuffers.get(fromPhone);
   if (existingBuffer) {
     clearTimeout(existingBuffer.timer);
@@ -1607,7 +1607,7 @@ var ReminderJob = class {
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i];
         const bookingCode = r[0] || "";
-        const patientName2 = r[1] || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645";
+        const patientName = r[1] || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645";
         const phone = r[2] || "";
         const branchName = r[3] || tenant.branches[0]?.name || "";
         const dateTimeStr = r[5] || "";
@@ -1621,11 +1621,11 @@ var ReminderJob = class {
           const diffMs = appointmentDate.getTime() - now.getTime();
           const diffHours = diffMs / (1e3 * 60 * 60);
           if (diffHours >= 3.5 && diffHours <= 4.5) {
-            const reminderMessage = `\u0645\u0631\u062D\u0628\u0627\u064B \u0623\u0633\u062A\u0627\u0630/\u0633\u062A ${patientName2} \u{1F338}
+            const reminderMessage = `\u0645\u0631\u062D\u0628\u0627\u064B \u0623\u0633\u062A\u0627\u0630/\u0633\u062A ${patientName} \u{1F338}
 \u0646\u062D\u0628 \u0646\u0630\u0643\u0631\u0643 \u0628\u0645\u0648\u0639\u062F\u0643 \u0627\u0644\u064A\u0648\u0645 \u0627\u0644\u0633\u0627\u0639\u0629 ${timePart} \u0628\u0640 ${tenant.clinicName} (${branchName}).
 \u0646\u0646\u062A\u0638\u0631\u0643 \u062A\u0646\u0648\u0631\u0646\u0627 \u0628\u0627\u0644\u0639\u064A\u0627\u062F\u0629!
 \u0627\u0630\u0627 \u0639\u0646\u062F\u0643 \u0623\u064A \u0638\u0631\u0641 \u0648\u062D\u0628\u0651\u064A\u062A \u0646\u063A\u064A\u0631 \u0628\u0644\u062D\u062C\u0632 \u0627\u0648 \u0646\u0644\u063A\u064A \u062A\u062F\u0644\u0644 \u0648\u0645\u0627\u0643\u0648 \u0623\u064A \u0625\u0634\u0643\u0627\u0644,  \u0628\u0633 \u0628\u0644\u063A\u0646\u0627 \u0648\u0623\u0646\u0627 \u0628\u062E\u062F\u0645\u062A\u0643.`;
-            console.log(`[Scheduled Reminder Job] Sending 4-hour pre-appointment reminder to ${patientName2} (${phone}) for booking ${bookingCode}`);
+            console.log(`[Scheduled Reminder Job] Sending 4-hour pre-appointment reminder to ${patientName} (${phone}) for booking ${bookingCode}`);
             await GoogleSheetsService.updateReminderStatus(bookingCode, "SENT");
           }
         }
