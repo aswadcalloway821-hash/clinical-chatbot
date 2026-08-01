@@ -155,57 +155,34 @@ export class FsmStateManager {
       const requestsFullBranches = /اعرض (كل|جميع) (الفروع|فروع)/i.test(messageText);
       const requestsFullServices = /اعرض (كل|جميع) (الخدمات|خدمات)/i.test(messageText);
 
+      // Helper for Direct Index Matching (1-based index matching e.g., "1", "2", "3")
+      const trimmedMsg = messageText.trim();
+      const numMatch = trimmedMsg.match(/^(?:رقم\s*)?([1-9]\d*)$/);
+      const inputIndex = numMatch ? parseInt(numMatch[1]) - 1 : -1;
+
       // 5. FSM State Transition Engine
       let responseText = '';
 
       switch (session.currentState) {
         case 'GREETING':
-          if (nluResult.entities.branchName || tenant.branches.some(b => messageText.includes(b.name))) {
-            const matchBranch = tenant.branches.find(b => b.name.includes(nluResult.entities.branchName!) || messageText.includes(b.name));
-            if (matchBranch) {
-              session.selectedBranchId = matchBranch.id;
-              session.selectedBranchName = matchBranch.name;
-            }
+          if (inputIndex >= 0 && tenant.departments && inputIndex < tenant.departments.length) {
+            session.selectedDepartment = tenant.departments[inputIndex];
+          } else if (nluResult.entities.departmentName) {
+            session.selectedDepartment = nluResult.entities.departmentName;
           }
-
-          if (nluResult.entities.departmentName || tenant.departments.some(d => messageText.includes(d))) {
-            const matchDept = tenant.departments.find(d => d.includes(nluResult.entities.departmentName!) || messageText.includes(d));
-            if (matchDept) {
-              session.selectedDepartment = matchDept;
-            }
-          }
-
-          // If patient selected both or selected department with single branch, advance to SELECT_SERVICE immediately!
-          if (session.selectedDepartment) {
-            const deptDoctors = tenant.doctors.filter(d => 
-              d.specialty.includes(session.selectedDepartment!) || 
-              session.selectedDepartment!.includes(d.specialty) ||
-              tenant.services.some(s => s.department === session.selectedDepartment && s.doctorName === d.name)
-            );
-            const matchingBranches = tenant.branches.filter(b => 
-              deptDoctors.some(d => d.branchName === b.name || d.branchId === b.id)
-            );
-            const validBranches = matchingBranches.length > 0 ? matchingBranches : tenant.branches;
-
-            if (validBranches.length === 1 || session.selectedBranchId) {
-              if (!session.selectedBranchId) {
-                session.selectedBranchId = validBranches[0].id;
-                session.selectedBranchName = validBranches[0].name;
-              }
-              session.currentState = 'SELECT_SERVICE';
-            } else {
-              session.currentState = 'SELECT_BRANCH';
-            }
-          } else if (session.selectedBranchId) {
-            session.currentState = 'SELECT_SERVICE';
-          } else {
+          if (tenant.departments && tenant.departments.length > 0) {
             session.currentState = 'SELECT_DEPARTMENT';
+          } else {
+            session.currentState = 'SELECT_BRANCH';
           }
           session.failedNluAttempts = 0;
           break;
 
         case 'SELECT_DEPARTMENT':
-          if (nluResult.entities.departmentName) {
+          if (inputIndex >= 0 && tenant.departments && inputIndex < tenant.departments.length) {
+            session.selectedDepartment = tenant.departments[inputIndex];
+            session.failedNluAttempts = 0;
+          } else if (nluResult.entities.departmentName) {
             session.selectedDepartment = nluResult.entities.departmentName;
             session.failedNluAttempts = 0;
           } else if (tenant.departments && tenant.departments.length > 0) {
@@ -213,22 +190,16 @@ export class FsmStateManager {
             session.selectedDepartment = matchDept || tenant.departments[0];
           }
 
-          // Auto-Branch Resolution Gate: Filter branches offering this exact department
-          const deptDoctors = tenant.doctors.filter(d => 
-            d.specialty.includes(session.selectedDepartment!) || 
-            session.selectedDepartment!.includes(d.specialty) ||
-            tenant.services.some(s => s.department === session.selectedDepartment && s.doctorName === d.name)
-          );
+          // Auto-Branch Resolution Gate: If only 1 branch offers this department and user didn't request full list, auto-select it!
+          const matchingBranches = tenant.branches.filter(b => {
+            const deptServices = tenant.services.filter(s => s.department === session.selectedDepartment);
+            const deptDoctors = tenant.doctors.filter(d => deptServices.some(s => s.doctorName === d.name || !s.doctorName));
+            return deptDoctors.some(d => d.branchName === b.name || d.branchId === b.id);
+          });
 
-          const matchingBranches = tenant.branches.filter(b => 
-            deptDoctors.some(d => d.branchName === b.name || d.branchId === b.id)
-          );
-
-          const validBranches = matchingBranches.length > 0 ? matchingBranches : tenant.branches;
-
-          if (validBranches.length === 1 && !requestsFullBranches) {
-            session.selectedBranchId = validBranches[0].id;
-            session.selectedBranchName = validBranches[0].name;
+          if (matchingBranches.length === 1 && !requestsFullBranches) {
+            session.selectedBranchId = matchingBranches[0].id;
+            session.selectedBranchName = matchingBranches[0].name;
             session.currentState = 'SELECT_SERVICE';
           } else {
             session.currentState = 'SELECT_BRANCH';
@@ -236,8 +207,14 @@ export class FsmStateManager {
           break;
 
         case 'SELECT_BRANCH':
-          if (nluResult.entities.branchName) {
-            const matchBranch = tenant.branches.find(b => b.name.includes(nluResult.entities.branchName!));
+          const availBranches = tenant.branches;
+          if (inputIndex >= 0 && inputIndex < availBranches.length) {
+            session.selectedBranchId = availBranches[inputIndex].id;
+            session.selectedBranchName = availBranches[inputIndex].name;
+            session.currentState = 'SELECT_SERVICE';
+            session.failedNluAttempts = 0;
+          } else if (nluResult.entities.branchName) {
+            const matchBranch = availBranches.find(b => b.name.includes(nluResult.entities.branchName!));
             if (matchBranch) {
               session.selectedBranchId = matchBranch.id;
               session.selectedBranchName = matchBranch.name;
@@ -247,8 +224,7 @@ export class FsmStateManager {
               session.failedNluAttempts++;
             }
           } else {
-            // Default to matching branch or first branch
-            const matchBranch = tenant.branches.find(b => messageText.includes(b.name)) || tenant.branches[0];
+            const matchBranch = availBranches.find(b => messageText.includes(b.name)) || availBranches[0];
             session.selectedBranchId = matchBranch.id;
             session.selectedBranchName = matchBranch.name;
             session.currentState = 'SELECT_SERVICE';
@@ -260,13 +236,20 @@ export class FsmStateManager {
             ? tenant.services.filter(s => s.department === session.selectedDepartment)
             : tenant.services;
 
+          const targetServices = deptServices.length > 0 ? deptServices : tenant.services;
+
           // Single Option Auto-Selection Gate: If only 1 service exists in department, auto-select!
           if (deptServices.length === 1 && !requestsFullServices) {
             session.selectedServiceId = deptServices[0].id;
             session.selectedServiceName = deptServices[0].name;
             session.currentState = 'SELECT_DOCTOR';
+          } else if (inputIndex >= 0 && inputIndex < targetServices.length) {
+            session.selectedServiceId = targetServices[inputIndex].id;
+            session.selectedServiceName = targetServices[inputIndex].name;
+            session.currentState = 'SELECT_DOCTOR';
+            session.failedNluAttempts = 0;
           } else if (nluResult.entities.serviceName) {
-            const matchService = (deptServices.length > 0 ? deptServices : tenant.services).find(s => s.name.includes(nluResult.entities.serviceName!));
+            const matchService = targetServices.find(s => s.name.includes(nluResult.entities.serviceName!));
             if (matchService) {
               session.selectedServiceId = matchService.id;
               session.selectedServiceName = matchService.name;
@@ -276,7 +259,7 @@ export class FsmStateManager {
               session.failedNluAttempts++;
             }
           } else {
-            const matchService = (deptServices.length > 0 ? deptServices : tenant.services)[0];
+            const matchService = targetServices[0];
             session.selectedServiceId = matchService.id;
             session.selectedServiceName = matchService.name;
             session.currentState = 'SELECT_DOCTOR';
@@ -287,9 +270,15 @@ export class FsmStateManager {
           const selectedBranchDoctors = tenant.doctors.filter(
             d => (!session.selectedBranchId || d.branchId === session.selectedBranchId || d.branchName === session.selectedBranchName)
           );
+          const targetDoctors = selectedBranchDoctors.length > 0 ? selectedBranchDoctors : tenant.doctors;
 
-          if (nluResult.entities.doctorName) {
-            const matchDoctor = (selectedBranchDoctors.length > 0 ? selectedBranchDoctors : tenant.doctors).find(d => d.name.includes(nluResult.entities.doctorName!));
+          if (inputIndex >= 0 && inputIndex < targetDoctors.length) {
+            session.selectedDoctorId = targetDoctors[inputIndex].id;
+            session.selectedDoctorName = targetDoctors[inputIndex].name;
+            session.currentState = 'SELECT_DATE_TIME';
+            session.failedNluAttempts = 0;
+          } else if (nluResult.entities.doctorName) {
+            const matchDoctor = targetDoctors.find(d => d.name.includes(nluResult.entities.doctorName!));
             if (matchDoctor) {
               session.selectedDoctorId = matchDoctor.id;
               session.selectedDoctorName = matchDoctor.name;
@@ -299,7 +288,7 @@ export class FsmStateManager {
               session.failedNluAttempts++;
             }
           } else {
-            const matchDoctor = (selectedBranchDoctors.length > 0 ? selectedBranchDoctors : tenant.doctors)[0];
+            const matchDoctor = targetDoctors[0];
             session.selectedDoctorId = matchDoctor.id;
             session.selectedDoctorName = matchDoctor.name;
             session.currentState = 'SELECT_DATE_TIME';

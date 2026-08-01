@@ -190,10 +190,10 @@ var ContextSlicer = class {
     let stepData = {};
     switch (session.currentState) {
       case "GREETING":
-        stepInstruction = "\u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0644\u0637\u0641 \u0628\u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0648\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0648\u0627\u0644\u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0637\u0628\u064A\u0629 \u0645\u0639\u0627\u064B \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0648\u0627\u0633\u0623\u0644\u064A\u0647 \u0623\u064A \u0641\u0631\u0639 \u0623\u0648 \u0642\u0633\u0645 \u064A\u0641\u0636\u0644 \u0627\u0644\u062D\u062C\u0632 \u0641\u064A\u0647.";
+        stepInstruction = "\u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0644\u0637\u0641 \u0628\u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0648\u0627\u0633\u0623\u0644\u064A\u0647 \u0639\u0646 \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0637\u0628\u064A \u0623\u0648 \u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629.";
         stepData = {
-          branchesList: tenant.branches.map((b, i) => `${i + 1}. ${b.name} (${b.address})`).join("\n"),
-          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. \u0642\u0633\u0645 ${d}`).join("\n")
+          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. \u0642\u0633\u0645 ${d}`).join("\n"),
+          branchesList: tenant.branches.map((b, i) => `${i + 1}. ${b.name}`).join("\n")
         };
         break;
       case "SELECT_DEPARTMENT":
@@ -217,9 +217,9 @@ var ContextSlicer = class {
       case "SELECT_SERVICE":
         const deptServices = session.selectedDepartment ? tenant.services.filter((s) => s.department === session.selectedDepartment) : tenant.services;
         const availServices = deptServices.length > 0 ? deptServices : tenant.services;
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u062E\u062F\u0645\u0627\u062A \u0628\u0623\u0633\u0645\u0627\u0621 \u0641\u0642\u0637 \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0628\u062F\u0648\u0646 \u0639\u0631\u0636 \u0623\u064A \u0623\u0633\u0639\u0627\u0631. \u0648\u0646\u0631\u062C\u062D \u0644\u0644\u0645\u0631\u0627\u062C\u0639 \u0643\u0634\u0641\u064A\u0629 \u0648\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0639\u0627\u0645\u0629 \u062F\u0627\u0626\u0645\u0627\u064B \u0644\u0644\u062A\u0634\u062E\u064A\u0635 \u0627\u0644\u062F\u0642\u064A\u0642.";
+        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u062E\u062F\u0645\u0627\u062A \u0628\u0623\u0633\u0645\u0627\u0621 \u0641\u0642\u0637 \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0645\u0631\u064A\u062D (1. , 2.). \u0648\u0646\u0631\u062C\u062D \u0644\u0644\u0645\u0631\u0627\u062C\u0639 \u0643\u0634\u0641\u064A\u0629 \u0648\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0639\u0627\u0645\u0629 \u062F\u0627\u0626\u0645\u0627\u064B \u0644\u0644\u062A\u0634\u062E\u064A\u0635 \u0627\u0644\u062F\u0642\u064A\u0642.";
         stepData = {
-          servicesList: availServices.map((s, i) => `${i + 1}. ${s.name}`).join("\n"),
+          servicesList: availServices.map((s, i) => `${i + 1}. ${s.name}${s.price > 0 ? ` - ${s.price} \u062F\u064A\u0646\u0627\u0631` : ""}`).join("\n\n"),
           recommendation: "\u0646\u0646\u0635\u062D \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0643\u0634\u0641\u064A\u0629 \u0648\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0639\u0627\u0645\u0629 \u0643\u062E\u064A\u0627\u0631 \u0623\u0648\u0644 \u0644\u062A\u062D\u062F\u064A\u062F \u0627\u0644\u0627\u062D\u062A\u064A\u0627\u062C \u0627\u0644\u062F\u0642\u064A\u0642"
         };
         break;
@@ -597,6 +597,10 @@ var GoogleSheetsService = class {
       throw new Error(`[Google Sheets Error] Column 'ClinicName' is missing or empty in 'Clinic_Metadata'.`);
     }
     const clinicName = dataRows[0][clinicNameIdx].trim();
+    const normalizeArabicText = (text) => {
+      if (!text) return "";
+      return text.replace(/[\u064B-\u0652]/g, "").replace(/[أإآ]/g, "\u0627").replace(/ة/g, "\u0647").replace(/ى/g, "\u064A").replace(/\s+/g, " ").trim();
+    };
     let metaDepartments = [];
     if (allDeptIdx !== -1) {
       dataRows.forEach((r) => {
@@ -604,8 +608,11 @@ var GoogleSheetsService = class {
         if (val) {
           val.split(/[,،]/).forEach((d) => {
             const trimmed = d.trim();
-            if (trimmed && !metaDepartments.includes(trimmed)) {
-              metaDepartments.push(trimmed);
+            if (trimmed) {
+              const norm = normalizeArabicText(trimmed);
+              if (!metaDepartments.some((existing) => normalizeArabicText(existing) === norm)) {
+                metaDepartments.push(trimmed);
+              }
             }
           });
         }
@@ -710,10 +717,9 @@ var GoogleSheetsService = class {
     if (metaDepartments.length > 0) {
       departments = metaDepartments;
     } else {
-      const rawDepts = services.map((s) => s.department.trim()).filter(Boolean);
-      departments = Array.from(new Set(rawDepts));
+      const rawDepts = services.map((s) => s.department).filter(Boolean);
+      departments = Array.from(new Set(rawDepts)).filter((d) => d !== "\u0639\u0627\u0645");
     }
-    departments = Array.from(new Set(departments.map((d) => d.trim()))).filter((d) => d !== "\u0639\u0627\u0645" || departments.length === 1);
     const tenantConfig = {
       tenantId,
       clinicName,
@@ -799,7 +805,7 @@ var GoogleSheetsService = class {
   static async logComplaint(complaint) {
     try {
       const token = await this.getAccessToken();
-      if (!token) return;
+      if (!token) return false;
       const cleanName = complaint.patientName.replace(/^=/, "'=");
       const cleanContent = complaint.complaintContent.replace(/^=/, "'=");
       const values = [[
@@ -809,17 +815,21 @@ var GoogleSheetsService = class {
         cleanContent,
         complaint.status || "PENDING"
       ]];
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Complaints!A1:append?valueInputOption=USER_ENTERED`;
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Complaints!A:E:append?valueInputOption=USER_ENTERED`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ values })
       });
       if (res.ok) {
-        console.log(`[Google Sheets API] Logged complaint for ${cleanName}`);
+        console.log(`[Google Sheets API] Saved complaint/handoff for ${complaint.phoneNumber}`);
+      } else {
+        console.error(`[Google Sheets API Error] Save complaint failed with status ${res.status}`);
       }
+      return res.ok;
     } catch (err) {
-      console.warn("[Google Sheets Complaint Warning]:", err);
+      console.error("[Google Sheets Complaint Error]:", err);
+      return false;
     }
   }
   /**
@@ -1178,72 +1188,57 @@ ${resumePrompt}`;
       }
       const requestsFullBranches = /اعرض (كل|جميع) (الفروع|فروع)/i.test(messageText);
       const requestsFullServices = /اعرض (كل|جميع) (الخدمات|خدمات)/i.test(messageText);
+      const trimmedMsg = messageText.trim();
+      const numMatch = trimmedMsg.match(/^(?:رقم\s*)?([1-9]\d*)$/);
+      const inputIndex = numMatch ? parseInt(numMatch[1]) - 1 : -1;
       let responseText = "";
       switch (session.currentState) {
         case "GREETING":
-          if (nluResult.entities.branchName || tenant.branches.some((b) => messageText.includes(b.name))) {
-            const matchBranch = tenant.branches.find((b) => b.name.includes(nluResult.entities.branchName) || messageText.includes(b.name));
-            if (matchBranch) {
-              session.selectedBranchId = matchBranch.id;
-              session.selectedBranchName = matchBranch.name;
-            }
+          if (inputIndex >= 0 && tenant.departments && inputIndex < tenant.departments.length) {
+            session.selectedDepartment = tenant.departments[inputIndex];
+          } else if (nluResult.entities.departmentName) {
+            session.selectedDepartment = nluResult.entities.departmentName;
           }
-          if (nluResult.entities.departmentName || tenant.departments.some((d) => messageText.includes(d))) {
-            const matchDept = tenant.departments.find((d) => d.includes(nluResult.entities.departmentName) || messageText.includes(d));
-            if (matchDept) {
-              session.selectedDepartment = matchDept;
-            }
-          }
-          if (session.selectedDepartment) {
-            const deptDoctors2 = tenant.doctors.filter(
-              (d) => d.specialty.includes(session.selectedDepartment) || session.selectedDepartment.includes(d.specialty) || tenant.services.some((s) => s.department === session.selectedDepartment && s.doctorName === d.name)
-            );
-            const matchingBranches2 = tenant.branches.filter(
-              (b) => deptDoctors2.some((d) => d.branchName === b.name || d.branchId === b.id)
-            );
-            const validBranches2 = matchingBranches2.length > 0 ? matchingBranches2 : tenant.branches;
-            if (validBranches2.length === 1 || session.selectedBranchId) {
-              if (!session.selectedBranchId) {
-                session.selectedBranchId = validBranches2[0].id;
-                session.selectedBranchName = validBranches2[0].name;
-              }
-              session.currentState = "SELECT_SERVICE";
-            } else {
-              session.currentState = "SELECT_BRANCH";
-            }
-          } else if (session.selectedBranchId) {
-            session.currentState = "SELECT_SERVICE";
-          } else {
+          if (tenant.departments && tenant.departments.length > 0) {
             session.currentState = "SELECT_DEPARTMENT";
+          } else {
+            session.currentState = "SELECT_BRANCH";
           }
           session.failedNluAttempts = 0;
           break;
         case "SELECT_DEPARTMENT":
-          if (nluResult.entities.departmentName) {
+          if (inputIndex >= 0 && tenant.departments && inputIndex < tenant.departments.length) {
+            session.selectedDepartment = tenant.departments[inputIndex];
+            session.failedNluAttempts = 0;
+          } else if (nluResult.entities.departmentName) {
             session.selectedDepartment = nluResult.entities.departmentName;
             session.failedNluAttempts = 0;
           } else if (tenant.departments && tenant.departments.length > 0) {
             const matchDept = tenant.departments.find((d) => messageText.includes(d));
             session.selectedDepartment = matchDept || tenant.departments[0];
           }
-          const deptDoctors = tenant.doctors.filter(
-            (d) => d.specialty.includes(session.selectedDepartment) || session.selectedDepartment.includes(d.specialty) || tenant.services.some((s) => s.department === session.selectedDepartment && s.doctorName === d.name)
-          );
-          const matchingBranches = tenant.branches.filter(
-            (b) => deptDoctors.some((d) => d.branchName === b.name || d.branchId === b.id)
-          );
-          const validBranches = matchingBranches.length > 0 ? matchingBranches : tenant.branches;
-          if (validBranches.length === 1 && !requestsFullBranches) {
-            session.selectedBranchId = validBranches[0].id;
-            session.selectedBranchName = validBranches[0].name;
+          const matchingBranches = tenant.branches.filter((b) => {
+            const deptServices2 = tenant.services.filter((s) => s.department === session.selectedDepartment);
+            const deptDoctors = tenant.doctors.filter((d) => deptServices2.some((s) => s.doctorName === d.name || !s.doctorName));
+            return deptDoctors.some((d) => d.branchName === b.name || d.branchId === b.id);
+          });
+          if (matchingBranches.length === 1 && !requestsFullBranches) {
+            session.selectedBranchId = matchingBranches[0].id;
+            session.selectedBranchName = matchingBranches[0].name;
             session.currentState = "SELECT_SERVICE";
           } else {
             session.currentState = "SELECT_BRANCH";
           }
           break;
         case "SELECT_BRANCH":
-          if (nluResult.entities.branchName) {
-            const matchBranch = tenant.branches.find((b) => b.name.includes(nluResult.entities.branchName));
+          const availBranches = tenant.branches;
+          if (inputIndex >= 0 && inputIndex < availBranches.length) {
+            session.selectedBranchId = availBranches[inputIndex].id;
+            session.selectedBranchName = availBranches[inputIndex].name;
+            session.currentState = "SELECT_SERVICE";
+            session.failedNluAttempts = 0;
+          } else if (nluResult.entities.branchName) {
+            const matchBranch = availBranches.find((b) => b.name.includes(nluResult.entities.branchName));
             if (matchBranch) {
               session.selectedBranchId = matchBranch.id;
               session.selectedBranchName = matchBranch.name;
@@ -1253,7 +1248,7 @@ ${resumePrompt}`;
               session.failedNluAttempts++;
             }
           } else {
-            const matchBranch = tenant.branches.find((b) => messageText.includes(b.name)) || tenant.branches[0];
+            const matchBranch = availBranches.find((b) => messageText.includes(b.name)) || availBranches[0];
             session.selectedBranchId = matchBranch.id;
             session.selectedBranchName = matchBranch.name;
             session.currentState = "SELECT_SERVICE";
@@ -1261,12 +1256,18 @@ ${resumePrompt}`;
           break;
         case "SELECT_SERVICE":
           const deptServices = session.selectedDepartment ? tenant.services.filter((s) => s.department === session.selectedDepartment) : tenant.services;
+          const targetServices = deptServices.length > 0 ? deptServices : tenant.services;
           if (deptServices.length === 1 && !requestsFullServices) {
             session.selectedServiceId = deptServices[0].id;
             session.selectedServiceName = deptServices[0].name;
             session.currentState = "SELECT_DOCTOR";
+          } else if (inputIndex >= 0 && inputIndex < targetServices.length) {
+            session.selectedServiceId = targetServices[inputIndex].id;
+            session.selectedServiceName = targetServices[inputIndex].name;
+            session.currentState = "SELECT_DOCTOR";
+            session.failedNluAttempts = 0;
           } else if (nluResult.entities.serviceName) {
-            const matchService = (deptServices.length > 0 ? deptServices : tenant.services).find((s) => s.name.includes(nluResult.entities.serviceName));
+            const matchService = targetServices.find((s) => s.name.includes(nluResult.entities.serviceName));
             if (matchService) {
               session.selectedServiceId = matchService.id;
               session.selectedServiceName = matchService.name;
@@ -1276,7 +1277,7 @@ ${resumePrompt}`;
               session.failedNluAttempts++;
             }
           } else {
-            const matchService = (deptServices.length > 0 ? deptServices : tenant.services)[0];
+            const matchService = targetServices[0];
             session.selectedServiceId = matchService.id;
             session.selectedServiceName = matchService.name;
             session.currentState = "SELECT_DOCTOR";
@@ -1286,8 +1287,14 @@ ${resumePrompt}`;
           const selectedBranchDoctors = tenant.doctors.filter(
             (d) => !session.selectedBranchId || d.branchId === session.selectedBranchId || d.branchName === session.selectedBranchName
           );
-          if (nluResult.entities.doctorName) {
-            const matchDoctor = (selectedBranchDoctors.length > 0 ? selectedBranchDoctors : tenant.doctors).find((d) => d.name.includes(nluResult.entities.doctorName));
+          const targetDoctors = selectedBranchDoctors.length > 0 ? selectedBranchDoctors : tenant.doctors;
+          if (inputIndex >= 0 && inputIndex < targetDoctors.length) {
+            session.selectedDoctorId = targetDoctors[inputIndex].id;
+            session.selectedDoctorName = targetDoctors[inputIndex].name;
+            session.currentState = "SELECT_DATE_TIME";
+            session.failedNluAttempts = 0;
+          } else if (nluResult.entities.doctorName) {
+            const matchDoctor = targetDoctors.find((d) => d.name.includes(nluResult.entities.doctorName));
             if (matchDoctor) {
               session.selectedDoctorId = matchDoctor.id;
               session.selectedDoctorName = matchDoctor.name;
@@ -1297,7 +1304,7 @@ ${resumePrompt}`;
               session.failedNluAttempts++;
             }
           } else {
-            const matchDoctor = (selectedBranchDoctors.length > 0 ? selectedBranchDoctors : tenant.doctors)[0];
+            const matchDoctor = targetDoctors[0];
             session.selectedDoctorId = matchDoctor.id;
             session.selectedDoctorName = matchDoctor.name;
             session.currentState = "SELECT_DATE_TIME";

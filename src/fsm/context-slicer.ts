@@ -39,10 +39,10 @@ export class ContextSlicer {
 
     switch (session.currentState) {
       case 'GREETING':
-        stepInstruction = 'رحبي بالمراجع بلطف بلهجة عراقية واعرضي الفروع المتاحة والأقسام الطبية معاً بترقيم عددي واسأليه أي فرع أو قسم يفضل الحجز فيه.';
+        stepInstruction = 'رحبي بالمراجع بلطف بلهجة عراقية واسأليه عن القسم الطبي أو الخدمة المطلوبة.';
         stepData = {
-          branchesList: tenant.branches.map((b, i) => `${i + 1}. ${b.name} (${b.address})`).join('\n'),
-          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. قسم ${d}`).join('\n')
+          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. قسم ${d}`).join('\n'),
+          branchesList: tenant.branches.map((b, i) => `${i + 1}. ${b.name}`).join('\n')
         };
         break;
 
@@ -75,9 +75,9 @@ export class ContextSlicer {
           : tenant.services;
 
         const availServices = deptServices.length > 0 ? deptServices : tenant.services;
-        stepInstruction = 'اعرضي خيارات الخدمات بأسماء فقط بترقيم عددي بدون عرض أي أسعار. ونرجح للمراجع كشفية واستشارة عامة دائماً للتشخيص الدقيق.';
+        stepInstruction = 'اعرضي خيارات الخدمات بأسماء فقط بترقيم عددي مريح (1. , 2.). ونرجح للمراجع كشفية واستشارة عامة دائماً للتشخيص الدقيق.';
         stepData = {
-          servicesList: availServices.map((s, i) => `${i + 1}. ${s.name}`).join('\n'),
+          servicesList: availServices.map((s, i) => `${i + 1}. ${s.name}${s.price > 0 ? ` - ${s.price} دينار` : ''}`).join('\n\n'),
           recommendation: 'ننصح المراجع بكشفية واستشارة عامة كخيار أول لتحديد الاحتياج الدقيق'
         };
         break;

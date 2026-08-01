@@ -174,7 +174,19 @@ export class GoogleSheetsService {
     }
     const clinicName = dataRows[0][clinicNameIdx].trim();
 
-    // Extract AllDepartments from Clinic_Metadata
+    // Helper to normalize Arabic text
+    const normalizeArabicText = (text: string): string => {
+      if (!text) return '';
+      return text
+        .replace(/[\u064B-\u0652]/g, '')
+        .replace(/[أإآ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/ى/g, 'ي')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    // Extract AllDepartments EXCLUSIVELY from Clinic_Metadata when present
     let metaDepartments: string[] = [];
     if (allDeptIdx !== -1) {
       dataRows.forEach(r => {
@@ -182,8 +194,11 @@ export class GoogleSheetsService {
         if (val) {
           val.split(/[,،]/).forEach((d: string) => {
             const trimmed = d.trim();
-            if (trimmed && !metaDepartments.includes(trimmed)) {
-              metaDepartments.push(trimmed);
+            if (trimmed) {
+              const norm = normalizeArabicText(trimmed);
+              if (!metaDepartments.some(existing => normalizeArabicText(existing) === norm)) {
+                metaDepartments.push(trimmed);
+              }
             }
           });
         }
@@ -304,16 +319,14 @@ export class GoogleSheetsService {
       };
     });
 
-    // Extract unique departments combining metaDepartments and services departments
+    // Extract unique departments EXCLUSIVELY from Clinic_Metadata when present
     let departments: string[] = [];
     if (metaDepartments.length > 0) {
       departments = metaDepartments;
     } else {
-      const rawDepts = services.map(s => s.department.trim()).filter(Boolean);
-      departments = Array.from(new Set(rawDepts));
+      const rawDepts = services.map(s => s.department).filter(Boolean);
+      departments = Array.from(new Set(rawDepts)).filter(d => d !== 'عام');
     }
-    // Clean deduplication
-    departments = Array.from(new Set(departments.map(d => d.trim()))).filter(d => d !== 'عام' || departments.length === 1);
 
     const tenantConfig: TenantConfig = {
       tenantId,
@@ -409,10 +422,10 @@ export class GoogleSheetsService {
   /**
    * Log human handoff or complaint into Complaints tab
    */
-  public static async logComplaint(complaint: ComplaintRecord): Promise<void> {
+  public static async logComplaint(complaint: ComplaintRecord): Promise<boolean> {
     try {
       const token = await this.getAccessToken();
-      if (!token) return;
+      if (!token) return false;
 
       const cleanName = complaint.patientName.replace(/^=/, "'=");
       const cleanContent = complaint.complaintContent.replace(/^=/, "'=");
@@ -424,17 +437,22 @@ export class GoogleSheetsService {
         complaint.status || 'PENDING'
       ]];
 
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Complaints!A1:append?valueInputOption=USER_ENTERED`;
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Complaints!A:E:append?valueInputOption=USER_ENTERED`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ values })
       });
+
       if (res.ok) {
-        console.log(`[Google Sheets API] Logged complaint for ${cleanName}`);
+        console.log(`[Google Sheets API] Saved complaint/handoff for ${complaint.phoneNumber}`);
+      } else {
+        console.error(`[Google Sheets API Error] Save complaint failed with status ${res.status}`);
       }
+      return res.ok;
     } catch (err) {
-      console.warn('[Google Sheets Complaint Warning]:', err);
+      console.error('[Google Sheets Complaint Error]:', err);
+      return false;
     }
   }
 
