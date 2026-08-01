@@ -305,8 +305,15 @@ export class GoogleSheetsService {
     });
 
     // Extract unique departments combining metaDepartments and services departments
-    const rawDepts = [...metaDepartments, ...services.map(s => s.department)];
-    const departments = Array.from(new Set(rawDepts.filter(Boolean))).filter(d => d !== 'عام' || rawDepts.length === 1);
+    let departments: string[] = [];
+    if (metaDepartments.length > 0) {
+      departments = metaDepartments;
+    } else {
+      const rawDepts = services.map(s => s.department.trim()).filter(Boolean);
+      departments = Array.from(new Set(rawDepts));
+    }
+    // Clean deduplication
+    departments = Array.from(new Set(departments.map(d => d.trim()))).filter(d => d !== 'عام' || departments.length === 1);
 
     const tenantConfig: TenantConfig = {
       tenantId,
@@ -417,12 +424,15 @@ export class GoogleSheetsService {
         complaint.status || 'PENDING'
       ]];
 
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Complaints!A:E:append?valueInputOption=USER_ENTERED`;
-      await fetch(url, {
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Complaints!A1:append?valueInputOption=USER_ENTERED`;
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ values })
       });
+      if (res.ok) {
+        console.log(`[Google Sheets API] Logged complaint for ${patientName}`);
+      }
     } catch (err) {
       console.warn('[Google Sheets Complaint Warning]:', err);
     }

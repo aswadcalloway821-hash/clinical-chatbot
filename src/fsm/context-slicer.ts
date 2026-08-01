@@ -75,9 +75,9 @@ export class ContextSlicer {
           : tenant.services;
 
         const availServices = deptServices.length > 0 ? deptServices : tenant.services;
-        stepInstruction = 'اعرضي خيارات الخدمات بأسماء وأسعار فقط بترقيم عددي. ونرجح للمراجع كشفية واستشارة عامة دائماً للتشخيص الدقيق.';
+        stepInstruction = 'اعرضي خيارات الخدمات بأسماء فقط بترقيم عددي بدون عرض أي أسعار. ونرجح للمراجع كشفية واستشارة عامة دائماً للتشخيص الدقيق.';
         stepData = {
-          servicesList: availServices.map((s, i) => `${i + 1}. ${s.name} - ${s.price} دينار`).join('\n'),
+          servicesList: availServices.map((s, i) => `${i + 1}. ${s.name}`).join('\n'),
           recommendation: 'ننصح المراجع بكشفية واستشارة عامة كخيار أول لتحديد الاحتياج الدقيق'
         };
         break;

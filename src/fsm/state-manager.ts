@@ -180,16 +180,22 @@ export class FsmStateManager {
             session.selectedDepartment = matchDept || tenant.departments[0];
           }
 
-          // Auto-Branch Resolution Gate: If only 1 branch offers this department and user didn't request full list, auto-select it!
-          const matchingBranches = tenant.branches.filter(b => {
-            const deptServices = tenant.services.filter(s => s.department === session.selectedDepartment);
-            const deptDoctors = tenant.doctors.filter(d => deptServices.some(s => s.doctorName === d.name || !s.doctorName));
-            return deptDoctors.some(d => d.branchName === b.name || d.branchId === b.id);
-          });
+          // Auto-Branch Resolution Gate: Filter branches offering this exact department
+          const deptDoctors = tenant.doctors.filter(d => 
+            d.specialty.includes(session.selectedDepartment!) || 
+            session.selectedDepartment!.includes(d.specialty) ||
+            tenant.services.some(s => s.department === session.selectedDepartment && s.doctorName === d.name)
+          );
 
-          if (matchingBranches.length === 1 && !requestsFullBranches) {
-            session.selectedBranchId = matchingBranches[0].id;
-            session.selectedBranchName = matchingBranches[0].name;
+          const matchingBranches = tenant.branches.filter(b => 
+            deptDoctors.some(d => d.branchName === b.name || d.branchId === b.id)
+          );
+
+          const validBranches = matchingBranches.length > 0 ? matchingBranches : tenant.branches;
+
+          if (validBranches.length === 1 && !requestsFullBranches) {
+            session.selectedBranchId = validBranches[0].id;
+            session.selectedBranchName = validBranches[0].name;
             session.currentState = 'SELECT_SERVICE';
           } else {
             session.currentState = 'SELECT_BRANCH';
