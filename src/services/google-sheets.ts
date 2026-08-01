@@ -6,6 +6,18 @@ dotenv.config();
 const sheetId = '1bBQWg3iZkVF4meUr0sT6-z-wW2JSrqL1HQSOlpyJCMo';
 
 export class GoogleSheetsService {
+  private static cachedTenantConfig: TenantConfig | null = null;
+  private static cacheTimestamp: number = 0;
+  private static CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+  /**
+   * Clear in-memory cache manually on reset or deployment
+   */
+  public static clearCache(): void {
+    this.cachedTenantConfig = null;
+    this.cacheTimestamp = 0;
+  }
+
   /**
    * Helper to parse CSV properly taking care of quotes and commas
    */
@@ -126,10 +138,17 @@ export class GoogleSheetsService {
   }
 
   /**
-   * Fetch Tenant Configuration EXCLUSIVELY and 100% DYNAMICALLY from Google Sheets (7-Tab System).
+   * Fetch Tenant Configuration with 5-minute In-Memory TTL Cache for ultra-fast responses (0.001s).
    * STRICT ZERO FALLBACK DATA: Throws explicit error if sheet or headers are missing.
    */
   public static async getTenantConfig(tenantId: string = 'live_sheet'): Promise<TenantConfig> {
+    const now = Date.now();
+    if (this.cachedTenantConfig && (now - this.cacheTimestamp) < this.CACHE_TTL_MS) {
+      console.log(`[Google Sheets Cache Hit] Returning cached TenantConfig (${Math.round((this.CACHE_TTL_MS - (now - this.cacheTimestamp)) / 1000)}s TTL remaining)`);
+      return this.cachedTenantConfig;
+    }
+
+    console.log(`[Google Sheets Cache Miss] Fetching fresh TenantConfig from Google Sheets...`);
     const metaRows = await this.fetchSheetValues('Clinic_Metadata!A1:Z50');
     const docRows = await this.fetchSheetValues('Doctors_Config!A1:Z50');
     const servRows = await this.fetchSheetValues('Services_Config!A1:Z50');
@@ -250,7 +269,7 @@ export class GoogleSheetsService {
     // Extract unique departments
     const departments = Array.from(new Set(services.map(s => s.department || 'عام'))).filter(Boolean);
 
-    return {
+    const tenantConfig: TenantConfig = {
       tenantId,
       clinicName,
       secretaryPhone,
@@ -263,6 +282,12 @@ export class GoogleSheetsService {
         { question: 'أوقات الدوام', answer: branches.map(b => `${b.name}: ${b.workingHours || 'من 9 صباحاً لـ 8 مساءً'}`).join(' | ') }
       ]
     };
+
+    // Save into 5-minute In-Memory Cache
+    this.cachedTenantConfig = tenantConfig;
+    this.cacheTimestamp = Date.now();
+
+    return tenantConfig;
   }
 
   /**

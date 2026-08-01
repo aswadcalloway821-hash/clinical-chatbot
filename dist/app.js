@@ -17,7 +17,7 @@ var GeminiService = class {
    * Helper to clean any accidental markdown from text
    */
   static cleanMarkdown(text) {
-    return text.replace(/\*/g, "").replace(/#/g, "").replace(/`/g, "").replace(/_/g, "").replace(/[\r\n]+/g, " ").trim();
+    return text.replace(/\*/g, "").replace(/#/g, "").replace(/`/g, "").replace(/_/g, "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   }
   /**
    * Build Dynamic System Instruction for Gemini based strictly on current Google Sheets Tenant Config
@@ -171,14 +171,15 @@ var ContextSlicer = class {
 \u0623\u0646\u062A\u0650 "\u0633\u0627\u0631\u0629 \u0627\u0644\u0631\u0642\u0645\u064A\u0629"\u060C \u0645\u0648\u0638\u0641\u0629 \u0627\u0633\u062A\u0642\u0628\u0627\u0644 \u0645\u0631\u0643\u0632 "${tenant.clinicName}".
 \u062A\u062A\u062D\u062F\u062B\u064A\u0646 \u0628\u0644\u063A\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0639\u0641\u0648\u064A\u0629 \u0648\u0637\u0628\u064A\u0639\u064A\u0629 \u0648\u0645\u0628\u0627\u0634\u0631\u0629 \u0645\u062B\u0644 \u0623\u064A \u0645\u0648\u0638\u0641\u0629 \u0627\u0633\u062A\u0642\u0628\u0627\u0644 \u0628\u0634\u0631\u064A\u0629 \u0645\u062D\u062A\u0631\u0641\u0629 \u0639\u0644\u0649 \u0627\u0644\u0648\u0627\u062A\u0633\u0627\u0628.
 
-\u0642\u0648\u0627\u0639\u062F \u0627\u0644\u0627\u0633\u062A\u062C\u0627\u0628\u0629 \u0627\u0644\u062F\u0642\u064A\u0642\u0629:
+\u0642\u0648\u0627\u0639\u062F \u0627\u0644\u0627\u0633\u062A\u062C\u0627\u0628\u0629 \u0648\u0627\u0644\u062A\u0646\u0633\u064A\u0642 \u0627\u0644\u0628\u0635\u0631\u064A:
 1. \u0627\u0633\u0645 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0648\u0627\u0644\u0645\u0631\u0643\u0632 \u0647\u0648 \u062D\u0635\u0631\u0627\u064B "${tenant.clinicName}".
 2. \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0627\u0644\u0645\u0648\u0627\u0642\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0647\u064A \u062D\u0635\u0631\u0627\u064B: ${tenant.branches.map((b) => b.name).join(" \u060C ")}.
 3. \u0627\u0644\u0623\u0637\u0628\u0627\u0621 \u0627\u0644\u0645\u062A\u0627\u062D\u0648\u0646 \u0647\u0645 \u062D\u0635\u0631\u0627\u064B: ${tenant.doctors.map((d) => d.name).join(" \u060C ")}.
 4. ${isFirstGreeting ? "\u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0645\u0631\u0629 \u0648\u0627\u062D\u062F\u0629 \u0641\u0642\u0637 \u0641\u064A \u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u062A\u0641\u0627\u0639\u0644." : "\u0623\u062C\u064A\u0628\u064A \u0628\u0634\u0643\u0644 \u0645\u0628\u0627\u0634\u0631 \u0648\u0645\u062E\u062A\u0635\u0631 \u062C\u062F\u0627\u064B \u0628\u062F\u0648\u0646 \u0623\u064A \u062A\u0631\u062D\u064A\u0628 \u0623\u0648 \u0645\u0642\u062F\u0645\u0627\u062A!"}
-5. \u0645\u0645\u0646\u0648\u0639 \u0645\u0646\u0639\u0627\u064B \u0628\u0627\u062A\u0627\u064B \u0625\u0636\u0627\u0641\u0629 \u0623\u064A \u062C\u0645\u0644\u0629 \u062E\u062A\u0627\u0645\u064A\u0629 \u0645\u0643\u0631\u0631\u0629 \u0641\u064A \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0631\u062F \u0645\u062B\u0644 ("\u0623\u0647\u0644\u0627\u064B \u0628\u0643 \u0641\u064A \u0639\u064A\u0627\u062F\u062A\u0646\u0627... \u0643\u064A\u0641 \u0623\u0642\u062F\u0631 \u0623\u0633\u0627\u0639\u062F\u0643 \u0627\u0644\u064A\u0648\u0645\u061F").
-6. \u0639\u062F\u0645 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0644\u0631\u0645\u0648\u0632 \u0623\u0648 \u0627\u0644\u062A\u0646\u0633\u064A\u0642\u0627\u062A \u063A\u064A\u0631 \u0627\u0644\u0628\u0634\u0631\u064A\u0629 \u0645\u062B\u0644 (*, **, #, \`\`\`).
-7. \u0627\u0644\u062A\u062C\u0627\u0648\u0628 \u0628\u0623\u0633\u0644\u0648\u0628 \u0628\u0634\u0631\u064A \u062F\u0627\u0641\u0626 \u0648\u0645\u062D\u062A\u0631\u0641.
+5. \u0645\u0645\u0646\u0648\u0639 \u0645\u0646\u0639\u0627\u064B \u0628\u0627\u062A\u0627\u064B \u0625\u0636\u0627\u0641\u0629 \u0623\u064A \u062C\u0645\u0644\u0629 \u062E\u062A\u0627\u0645\u064A\u0629 \u0645\u0643\u0631\u0631\u0629 \u0641\u064A \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0631\u062F \u0625\u0637\u0644\u0627\u0642\u0627\u064B.
+6. \u0627\u062C\u0639\u0644\u064A \u0643\u0644 \u062E\u064A\u0627\u0631 \u0623\u0648 \u0646\u0642\u0637\u0629 \u0623\u0648 \u0631\u0642\u0645 \u0641\u064A \u0633\u0637\u0631 \u062C\u062F\u064A\u062F \u0645\u0646\u0641\u0635\u0644 \u062A\u0645\u0627\u0645\u0627\u064B (
+)\u060C \u0648\u0627\u062A\u0631\u0643\u064A \u0645\u0633\u0627\u0641\u0629 \u0633\u0637\u0631 \u0645\u0631\u064A\u062D\u0629 \u0644\u0644\u0639\u064A\u0646 \u0628\u064A\u0646 \u0627\u0644\u0639\u0646\u0627\u0648\u064A\u0646 \u0648\u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A \u0639\u0644\u0649 \u0627\u0644\u0648\u0627\u062A\u0633\u0627\u0628.
+7. \u0639\u062F\u0645 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0644\u0631\u0645\u0648\u0632 \u0623\u0648 \u0627\u0644\u062A\u0646\u0633\u064A\u0642\u0627\u062A \u063A\u064A\u0631 \u0627\u0644\u0628\u0634\u0631\u064A\u0629 \u0645\u062B\u0644 (*, **, #, \`\`\`).
 `;
     let stepInstruction = "";
     let stepData = {};
@@ -407,6 +408,17 @@ import dotenv2 from "dotenv";
 dotenv2.config();
 var sheetId = "1bBQWg3iZkVF4meUr0sT6-z-wW2JSrqL1HQSOlpyJCMo";
 var GoogleSheetsService = class {
+  static cachedTenantConfig = null;
+  static cacheTimestamp = 0;
+  static CACHE_TTL_MS = 5 * 60 * 1e3;
+  // 5 minutes
+  /**
+   * Clear in-memory cache manually on reset or deployment
+   */
+  static clearCache() {
+    this.cachedTenantConfig = null;
+    this.cacheTimestamp = 0;
+  }
   /**
    * Helper to parse CSV properly taking care of quotes and commas
    */
@@ -515,10 +527,16 @@ var GoogleSheetsService = class {
     }
   }
   /**
-   * Fetch Tenant Configuration EXCLUSIVELY and 100% DYNAMICALLY from Google Sheets (7-Tab System).
+   * Fetch Tenant Configuration with 5-minute In-Memory TTL Cache for ultra-fast responses (0.001s).
    * STRICT ZERO FALLBACK DATA: Throws explicit error if sheet or headers are missing.
    */
   static async getTenantConfig(tenantId = "live_sheet") {
+    const now = Date.now();
+    if (this.cachedTenantConfig && now - this.cacheTimestamp < this.CACHE_TTL_MS) {
+      console.log(`[Google Sheets Cache Hit] Returning cached TenantConfig (${Math.round((this.CACHE_TTL_MS - (now - this.cacheTimestamp)) / 1e3)}s TTL remaining)`);
+      return this.cachedTenantConfig;
+    }
+    console.log(`[Google Sheets Cache Miss] Fetching fresh TenantConfig from Google Sheets...`);
     const metaRows = await this.fetchSheetValues("Clinic_Metadata!A1:Z50");
     const docRows = await this.fetchSheetValues("Doctors_Config!A1:Z50");
     const servRows = await this.fetchSheetValues("Services_Config!A1:Z50");
@@ -616,7 +634,7 @@ var GoogleSheetsService = class {
       };
     });
     const departments = Array.from(new Set(services.map((s) => s.department || "\u0639\u0627\u0645"))).filter(Boolean);
-    return {
+    const tenantConfig = {
       tenantId,
       clinicName,
       secretaryPhone,
@@ -629,6 +647,9 @@ var GoogleSheetsService = class {
         { question: "\u0623\u0648\u0642\u0627\u062A \u0627\u0644\u062F\u0648\u0627\u0645", answer: branches.map((b) => `${b.name}: ${b.workingHours || "\u0645\u0646 9 \u0635\u0628\u0627\u062D\u0627\u064B \u0644\u0640 8 \u0645\u0633\u0627\u0621\u064B"}`).join(" | ") }
       ]
     };
+    this.cachedTenantConfig = tenantConfig;
+    this.cacheTimestamp = Date.now();
+    return tenantConfig;
   }
   /**
    * Lookup patient CRM for Returning Patient Zero-Reask Protocol
@@ -837,6 +858,7 @@ var FsmStateManager = class {
     const isExplicitReset = /^(تصفير|ريست|reset|إعادة ضبط)$/i.test(messageText.trim());
     if (isExplicitReset) {
       this.sessions.delete(phone);
+      GoogleSheetsService.clearCache();
       const crmPatient = await GoogleSheetsService.lookupPatientCRM(phone);
       const newSession = {
         phoneNumber: phone,
@@ -889,6 +911,8 @@ var FsmStateManager = class {
       return `${faqAnswer}
 ${resumePrompt}`;
     }
+    const requestsFullBranches = /اعرض (كل|جميع) (الفروع|فروع)/i.test(messageText);
+    const requestsFullServices = /اعرض (كل|جميع) (الخدمات|خدمات)/i.test(messageText);
     let responseText = "";
     switch (session.currentState) {
       case "GREETING":
@@ -915,7 +939,7 @@ ${resumePrompt}`;
           const deptDoctors = tenant.doctors.filter((d) => deptServices2.some((s) => s.doctorName === d.name || !s.doctorName));
           return deptDoctors.some((d) => d.branchName === b.name || d.branchId === b.id);
         });
-        if (matchingBranches.length === 1) {
+        if (matchingBranches.length === 1 && !requestsFullBranches) {
           session.selectedBranchId = matchingBranches[0].id;
           session.selectedBranchName = matchingBranches[0].name;
           session.currentState = "SELECT_SERVICE";
@@ -943,7 +967,11 @@ ${resumePrompt}`;
         break;
       case "SELECT_SERVICE":
         const deptServices = session.selectedDepartment ? tenant.services.filter((s) => s.department === session.selectedDepartment) : tenant.services;
-        if (nluResult.entities.serviceName) {
+        if (deptServices.length === 1 && !requestsFullServices) {
+          session.selectedServiceId = deptServices[0].id;
+          session.selectedServiceName = deptServices[0].name;
+          session.currentState = "SELECT_DOCTOR";
+        } else if (nluResult.entities.serviceName) {
           const matchService = (deptServices.length > 0 ? deptServices : tenant.services).find((s) => s.name.includes(nluResult.entities.serviceName));
           if (matchService) {
             session.selectedServiceId = matchService.id;

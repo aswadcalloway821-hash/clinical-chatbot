@@ -18,7 +18,8 @@ export class GeminiService {
       .replace(/#/g, '')
       .replace(/`/g, '')
       .replace(/_/g, '')
-      .replace(/[\r\n]+/g, ' ')
+      .replace(/\r\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
       .trim();
   }
 

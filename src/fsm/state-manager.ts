@@ -26,6 +26,7 @@ export class FsmStateManager {
 
     if (isExplicitReset) {
       this.sessions.delete(phone);
+      GoogleSheetsService.clearCache(); // Force fresh cache reload on explicit reset
       const crmPatient = await GoogleSheetsService.lookupPatientCRM(phone);
       const newSession: PatientSession = {
         phoneNumber: phone,
@@ -43,6 +44,7 @@ export class FsmStateManager {
 
     let session = this.sessions.get(phone);
 
+    // First-Touch CRM Pre-fetch: Lookup patient records on initial message
     if (!session) {
       const crmPatient = await GoogleSheetsService.lookupPatientCRM(phone);
       session = {
@@ -91,6 +93,10 @@ export class FsmStateManager {
       return `${faqAnswer}\n${resumePrompt}`;
     }
 
+    // Check for explicit full list bypass ("اعرض كل الفروع" / "اعرض كل الخدمات")
+    const requestsFullBranches = /اعرض (كل|جميع) (الفروع|فروع)/i.test(messageText);
+    const requestsFullServices = /اعرض (كل|جميع) (الخدمات|خدمات)/i.test(messageText);
+
     // 4. FSM State Transition Engine
     let responseText = '';
 
@@ -116,14 +122,14 @@ export class FsmStateManager {
           session.selectedDepartment = matchDept || tenant.departments[0];
         }
 
-        // Auto-Branch Resolution: If only 1 branch offers this department, auto-select it!
+        // Auto-Branch Resolution Gate: If only 1 branch offers this department and user didn't request full list, auto-select it!
         const matchingBranches = tenant.branches.filter(b => {
           const deptServices = tenant.services.filter(s => s.department === session.selectedDepartment);
           const deptDoctors = tenant.doctors.filter(d => deptServices.some(s => s.doctorName === d.name || !s.doctorName));
           return deptDoctors.some(d => d.branchName === b.name || d.branchId === b.id);
         });
 
-        if (matchingBranches.length === 1) {
+        if (matchingBranches.length === 1 && !requestsFullBranches) {
           session.selectedBranchId = matchingBranches[0].id;
           session.selectedBranchName = matchingBranches[0].name;
           session.currentState = 'SELECT_SERVICE';
@@ -157,7 +163,12 @@ export class FsmStateManager {
           ? tenant.services.filter(s => s.department === session.selectedDepartment)
           : tenant.services;
 
-        if (nluResult.entities.serviceName) {
+        // Single Option Auto-Selection Gate: If only 1 service exists in department, auto-select!
+        if (deptServices.length === 1 && !requestsFullServices) {
+          session.selectedServiceId = deptServices[0].id;
+          session.selectedServiceName = deptServices[0].name;
+          session.currentState = 'SELECT_DOCTOR';
+        } else if (nluResult.entities.serviceName) {
           const matchService = (deptServices.length > 0 ? deptServices : tenant.services).find(s => s.name.includes(nluResult.entities.serviceName!));
           if (matchService) {
             session.selectedServiceId = matchService.id;
