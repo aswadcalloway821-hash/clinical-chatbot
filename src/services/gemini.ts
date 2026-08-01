@@ -10,7 +10,7 @@ const genAI = new GoogleGenerativeAI(apiKey);
 
 export class GeminiService {
   /**
-   * Build Strict System Instruction for Gemini to 100% prevent any wrong clinic names or hallucinations
+   * Build Dynamic System Instruction for Gemini based strictly on current Google Sheets Tenant Config
    */
   private static getSystemInstruction(tenant: TenantConfig): string {
     const branchNames = tenant.branches.map(b => b.name).join(' ، ');
@@ -19,12 +19,11 @@ export class GeminiService {
     return `
 أنتِ "سارة الرقمية"، موظفة استقبال بشرية في "${tenant.clinicName}".
 
-قواعد أمان عليا وحازمة جداً (STRICT SYSTEM RULES):
-1. اسم العيادة والمركز الوحيد والحقيقي هو حصراً "${tenant.clinicName}".
-2. يُمنع منعاً باتاً وقطيعاً تلفظ أو كتابة أي اسم آخر مثل "مركز الحياة" أو "مركز الحياة الطبي" إطلاقاً وتحت أي ظرف!
-3. الفروع المتاحة حصراً بالعيادة هي: ${branchNames}. يُمنع منعاً باتاً اختراع أو ذكر أي فروع غير مذكورة بالقائمة أعلاه!
-4. الأطباء المتاحون حصراً هم: ${doctorNames}.
-5. التحدث بلغة عراقية بغدادية عفوية ومباشرة بدون رموز أو نجوم أو تنسيقات Markdown (*, **, #).
+قواعد العمل والتجاوب المباشر:
+1. اسم العيادة والمركز هو حصراً "${tenant.clinicName}".
+2. الفروع والمواقع المتاحة هي حصراً: ${branchNames}.
+3. الأطباء المتاحون هم حصراً: ${doctorNames}.
+4. التحدث بلغة عراقية عفوية ومباشرة بدون رموز أو نجوم أو تنسيقات Markdown (*, **, #).
 `;
   }
 
@@ -42,7 +41,7 @@ export class GeminiService {
 
 حالة الحوار الحالية: ${currentState}
 
-فروع العيادة المتوفرة: ${JSON.stringify(tenant.branches.map(b => b.name))}
+الفروع والمواقع المتاحة: ${JSON.stringify(tenant.branches.map(b => b.name))}
 الخدمات المتوفرة: ${JSON.stringify(tenant.services.map(s => s.name))}
 الأطباء المتوفرون: ${JSON.stringify(tenant.doctors.map(d => d.name))}
 
@@ -99,9 +98,9 @@ export class GeminiService {
   }
 
   /**
-   * Generate Authentic Iraqi Dialect response ("سارة الرقمية")
+   * Generate Authentic Iraqi Dialect response ("سارة الرقمية") using real TenantConfig (Zero Dummy Data!)
    */
-  public static async generateIraqiResponse(slicedContext: SlicedContextPayload): Promise<string> {
+  public static async generateIraqiResponse(slicedContext: SlicedContextPayload, tenant: TenantConfig): Promise<string> {
     const prompt = `
 المركز الطبي الحقيقي: ${slicedContext.clinicName}
 الخطوة الحالية: ${slicedContext.step}
@@ -115,19 +114,9 @@ export class GeminiService {
 
     try {
       const modelName = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
-      const dummyTenant: TenantConfig = {
-        tenantId: 't1',
-        clinicName: slicedContext.clinicName,
-        secretaryPhone: '07881015584',
-        branches: [{ id: 'b1', name: 'فرع الجزائر', address: 'البصرة', phone: '' }, { id: 'b2', name: 'فرع العشار', address: 'البصرة', phone: '' }],
-        services: [],
-        doctors: [{ id: 'd1', branchId: 'b1', name: 'د. أحمد', specialty: '', services: [], calendarId: '', workingHours: { days: [], startHour: 9, endHour: 17, slotDurationMinutes: 30 } }],
-        faqs: []
-      };
-
       const model = genAI.getGenerativeModel({
         model: modelName,
-        systemInstruction: this.getSystemInstruction(dummyTenant)
+        systemInstruction: this.getSystemInstruction(tenant)
       });
       const response = await model.generateContent(prompt);
 
@@ -149,7 +138,7 @@ export class GeminiService {
   }
 
   /**
-   * Answer FAQ for Freeze & Resume protocol
+   * Answer FAQ dynamically based on Google Sheets TenantConfig
    */
   public static async answerFaq(userMessage: string, tenant: TenantConfig): Promise<string> {
     const prompt = `
@@ -158,7 +147,7 @@ export class GeminiService {
 المعلومات الرسمية المتاحة لـ "${tenant.clinicName}":
 الأسئلة الشائعة: ${JSON.stringify(tenant.faqs)}
 الخدمات والأسعار: ${JSON.stringify(tenant.services)}
-الفروع والمواقع: ${JSON.stringify(tenant.branches)}
+الفروع والمواقع المتاحة: ${JSON.stringify(tenant.branches)}
 
 أجيبي عن سؤال المريض بلهجة عراقية عفوية جداً وبدون أي تنميق أو تنسيق Markdown.
 `;

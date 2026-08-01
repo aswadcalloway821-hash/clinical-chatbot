@@ -223,7 +223,7 @@ export class FsmStateManager {
 
     // 5. Generate Iraqi Persona Response via Context Slicer
     const sliced = ContextSlicer.slice(session, tenant, messageText);
-    responseText = await GeminiService.generateIraqiResponse(sliced);
+    responseText = await GeminiService.generateIraqiResponse(sliced, tenant);
 
     return responseText;
   }
