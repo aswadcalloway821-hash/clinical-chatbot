@@ -10,11 +10,25 @@ const genAI = new GoogleGenerativeAI(apiKey);
 
 export class GeminiService {
   /**
+   * Helper to clean any accidental markdown from text
+   */
+  private static cleanMarkdown(text: string): string {
+    return text
+      .replace(/\*/g, '')
+      .replace(/#/g, '')
+      .replace(/`/g, '')
+      .replace(/_/g, '')
+      .replace(/[\r\n]+/g, ' ')
+      .trim();
+  }
+
+  /**
    * Build Dynamic System Instruction for Gemini based strictly on current Google Sheets Tenant Config
    */
   private static getSystemInstruction(tenant: TenantConfig): string {
     const branchNames = tenant.branches.map(b => b.name).join(' ، ');
     const doctorNames = tenant.doctors.map(d => d.name).join(' ، ');
+    const deptNames = tenant.departments ? tenant.departments.join(' ، ') : '';
 
     return `
 أنتِ "سارة الرقمية"، موظفة استقبال بشرية في "${tenant.clinicName}".
@@ -22,8 +36,10 @@ export class GeminiService {
 قواعد العمل والتجاوب المباشر:
 1. اسم العيادة والمركز هو حصراً "${tenant.clinicName}".
 2. الفروع والمواقع المتاحة هي حصراً: ${branchNames}.
-3. الأطباء المتاحون هم حصراً: ${doctorNames}.
-4. التحدث بلغة عراقية عفوية ومباشرة بدون رموز أو نجوم أو تنسيقات Markdown (*, **, #).
+3. الأقسام المتاحة هي: ${deptNames}.
+4. الأطباء المتاحون هم حصراً: ${doctorNames}.
+5. التحدث بلغة عراقية عفوية ومباشرة بدون رموز أو نجوم أو تنسيقات Markdown (*, **, #).
+6. عدم إضافة أي عبارة ترحيب ختامية مكررة في نهاية الرد إطلاقاً.
 `;
   }
 
@@ -41,13 +57,15 @@ export class GeminiService {
 
 حالة الحوار الحالية: ${currentState}
 
+الأقسام المتوفرة: ${JSON.stringify(tenant.departments || [])}
 الفروع والمواقع المتاحة: ${JSON.stringify(tenant.branches.map(b => b.name))}
 الخدمات المتوفرة: ${JSON.stringify(tenant.services.map(s => s.name))}
 الأطباء المتوفرون: ${JSON.stringify(tenant.doctors.map(d => d.name))}
 
 رسالة المريض: "${userMessage}"
 
-قواعد مهمة:
+قواعد اختيار النية (intent):
+- إذا اختار قسماً طلياً -> intent: "SELECT_DEPARTMENT" والكيان departmentName
 - إذا طلب موظف بشري أو شكوى أو تعبير عن الغضب شديد -> intent: "REQUEST_HUMAN" أو "ANGRY_EXPRESSION"
 - إذا يسأل عن سعر أو موقع أو معلومة -> intent: "ASK_FAQ"
 - إذا اختار فرعاً أو طبيباً أو خدمة -> اختر النية والكيان المناسب.
@@ -57,8 +75,9 @@ export class GeminiService {
 
 أرجع نتيجة JSON فقط بالتنسيق التالي بدون أي نص إضافي:
 {
-  "intent": "GREETING | SELECT_BRANCH | SELECT_SERVICE | SELECT_DOCTOR | SELECT_SLOT | PROVIDE_NAME | CONFIRM | CANCEL | ASK_FAQ | REQUEST_HUMAN | ANGRY_EXPRESSION | UNKNOWN",
+  "intent": "GREETING | SELECT_DEPARTMENT | SELECT_BRANCH | SELECT_SERVICE | SELECT_DOCTOR | SELECT_SLOT | PROVIDE_NAME | CONFIRM | CANCEL | ASK_FAQ | REQUEST_HUMAN | ANGRY_EXPRESSION | UNKNOWN",
   "entities": {
+    "departmentName": "اسم القسم أو undefined",
     "branchName": "اسم الفرع أو undefined",
     "serviceName": "اسم الخدمة أو undefined",
     "doctorName": "اسم الطبيب أو undefined",
@@ -109,7 +128,7 @@ export class GeminiService {
 رسالة المريض الأخيرة: "${slicedContext.userMessage}"
 
 صوغي ردكِ بالكامل بلهجة عراقية محبوبة وعفوية لـ "${slicedContext.clinicName}"، بدون أي نجوم أو خطوط أو رموز تنصيص أو Markdown.
-أجيبي المريض مباشرة واسأليه عن الخطوة التالية بأسلوب سلس ودافئ.
+أجيبي المريض مباشرة بحسب التعليمات بدون إضافة أي عبارة ترحيبية أو ختامية مكررة في نهاية الرد!
 `;
 
     try {
@@ -120,20 +139,11 @@ export class GeminiService {
       });
       const response = await model.generateContent(prompt);
 
-      let reply = response.response.text()?.trim() || '';
-      
-      // Clean any accidental Markdown formatting
-      reply = reply
-        .replace(/\*/g, '')
-        .replace(/#/g, '')
-        .replace(/`/g, '')
-        .replace(/_/g, '')
-        .trim();
-
-      return reply;
+      const reply = response.response.text()?.trim() || '';
+      return this.cleanMarkdown(reply);
     } catch (error) {
       console.error('Gemini NLG Error:', error);
-      return `أهلاً بك في ${slicedContext.clinicName}. كيف أقدر أساعدك اليوم؟`;
+      return `تفضل عيني، أنا بانتظار اختيارك لتكملة الحجز.`;
     }
   }
 
@@ -149,7 +159,7 @@ export class GeminiService {
 الخدمات والأسعار: ${JSON.stringify(tenant.services)}
 الفروع والمواقع المتاحة: ${JSON.stringify(tenant.branches)}
 
-أجيبي عن سؤال المريض بلهجة عراقية عفوية جداً وبدون أي تنميق أو تنسيق Markdown.
+أجيبي عن سؤال المريض بلهجة عراقية عفوية جداً وبدون أي تنميق أو تنسيق Markdown، وبدون إضافة أي جملة ترحيب ختامية مكررة!
 `;
 
     try {
@@ -160,13 +170,10 @@ export class GeminiService {
       });
       const response = await model.generateContent(prompt);
 
-      return (response.response.text() || '')
-        .replace(/\*/g, '')
-        .replace(/#/g, '')
-        .replace(/`/g, '')
-        .trim();
+      const reply = response.response.text() || '';
+      return this.cleanMarkdown(reply);
     } catch (error) {
-      return `أهلاً بك بـ ${tenant.clinicName}، يمكنك الاطلاع على التفاصيل والموقع من العيادة أو الاتصال بالسكرتارية: ${tenant.secretaryPhone}.`;
+      return `تفضل عيني، يمكنك الاتصال بالسكرتارية لمعرفة كافة التفاصيل: ${tenant.secretaryPhone}.`;
     }
   }
 }

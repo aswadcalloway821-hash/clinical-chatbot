@@ -7,10 +7,13 @@ const router = Router();
 // 1. Deduplication Set for message.id (wamid) to prevent double processing on Meta retries
 const processedMessageIds = new Set<string>();
 
-// Clean old message IDs every 15 minutes to keep memory footprint minimal
+// Clean old message IDs to keep memory footprint capped at 5000 max entries
 setInterval(() => {
   if (processedMessageIds.size > 5000) {
+    const idsArray = Array.from(processedMessageIds);
+    // Keep last 2500 entries
     processedMessageIds.clear();
+    idsArray.slice(-2500).forEach(id => processedMessageIds.add(id));
   }
 }, 15 * 60 * 1000);
 
@@ -58,7 +61,9 @@ router.post('/webhook', (req: Request, res: Response) => {
       if (message && message.type === 'text') {
         const messageId = message.id;
         const fromPhone = message.from;
-        const messageText = message.text.body;
+        // Security & Memory Hardening: Cap incoming message length to 1000 chars
+        const rawText = message.text.body || '';
+        const messageText = rawText.length > 1000 ? rawText.substring(0, 1000) : rawText;
 
         // MECHANISM 2: Deduplication Set check
         if (processedMessageIds.has(messageId)) {
@@ -158,13 +163,15 @@ router.get('/api/tenant-debug', async (req: Request, res: Response) => {
 router.post('/api/chat', async (req: Request, res: Response) => {
   try {
     const { phone = '07700000000', message = 'مرحبا' } = req.body;
+    const rawText = String(message || '');
+    const cleanText = rawText.length > 1000 ? rawText.substring(0, 1000) : rawText;
+
     const tenant = await GoogleSheetsService.getTenantConfig();
-    
-    const replyText = await FsmStateManager.processMessage(phone, message, tenant);
+    const replyText = await FsmStateManager.processMessage(phone, cleanText, tenant);
     
     return res.json({
       phone,
-      userMessage: message,
+      userMessage: cleanText,
       botReply: replyText
     });
   } catch (error) {

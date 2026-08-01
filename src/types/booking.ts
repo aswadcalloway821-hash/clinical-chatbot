@@ -1,5 +1,6 @@
 export type BookingState =
   | 'GREETING'
+  | 'SELECT_DEPARTMENT'
   | 'SELECT_BRANCH'
   | 'SELECT_SERVICE'
   | 'SELECT_DOCTOR'
@@ -14,25 +15,40 @@ export interface Branch {
   name: string;
   address: string;
   phone: string;
+  workingHours?: string;
+  locationLink?: string;
 }
 
 export interface Service {
   id: string;
   name: string;
+  type?: string;
+  department?: string;
   price: number;
   durationMinutes: number;
+  doctorName?: string;
   description?: string;
+  offer?: string;
+  preAppointmentInstructions?: string;
+  postCareAdvice?: string;
 }
 
 export interface Doctor {
   id: string;
   branchId: string;
+  branchName: string;
   name: string;
   specialty: string;
-  services: string[]; // Service IDs
-  calendarId?: string;
+  secretariatPhone?: string;
+  services: string[]; // Service IDs or names
+  calendarId: string;
+  doctorTitleExperience?: string;
+  dailyPatientCapacity?: number;
+  breakTimes?: string;
+  workingDays: number[]; // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  offDays?: string[]; // E.g. ["2026-08-15"]
   workingHours: {
-    days: number[]; // 0 = Sun, 1 = Mon, ..., 6 = Sat
+    days: number[];
     startHour: number; // e.g. 9
     endHour: number;   // e.g. 17
     slotDurationMinutes: number;
@@ -42,6 +58,7 @@ export interface Doctor {
 export interface TimeSlot {
   slotId: string;
   doctorId: string;
+  doctorName?: string;
   date: string; // YYYY-MM-DD
   startTime: string; // HH:mm
   endTime: string; // HH:mm
@@ -53,12 +70,18 @@ export interface PatientSession {
   phoneNumber: string;
   tenantId: string;
   currentState: BookingState;
+  selectedDepartment?: string;
   selectedBranchId?: string;
+  selectedBranchName?: string;
   selectedServiceId?: string;
+  selectedServiceName?: string;
   selectedDoctorId?: string;
+  selectedDoctorName?: string;
   selectedSlot?: TimeSlot;
+  customRequestedDate?: string;
   patientName?: string;
   patientTag?: 'NEW' | 'RETURNING';
+  isReturningPatient?: boolean;
   failedNluAttempts: number;
   lastInteractionTime: number;
   interruptedState?: BookingState; // For Freeze & Resume protocol
@@ -77,11 +100,43 @@ export interface Booking {
   doctorName: string;
   serviceId: string;
   serviceName: string;
+  department?: string;
   date: string;
   startTime: string;
   endTime: string;
+  durationMinutes: number;
   status: 'PENDING' | 'CONFIRMED' | 'CANCELLED';
   createdAt: string;
+  notes?: string;
+  reminderStatus?: string;
+  platform?: string;
+}
+
+export interface PatientCRM {
+  phoneNumber: string;
+  patientName: string;
+  platform?: string;
+  totalBookings: number;
+  lastVisitDate?: string;
+  noShowCount?: number;
+  notes?: string;
+}
+
+export interface ComplaintRecord {
+  timestamp: string;
+  patientName: string;
+  phoneNumber: string;
+  complaintContent: string;
+  status: string;
+}
+
+export interface AnalyticsRecord {
+  date: string;
+  incomingMessages: number;
+  totalBookings: number;
+  cancelledBookings: number;
+  noShows: number;
+  recoveredRevenue: number;
 }
 
 export interface TenantConfig {
@@ -92,11 +147,13 @@ export interface TenantConfig {
   services: Service[];
   doctors: Doctor[];
   faqs: Array<{ question: string; answer: string }>;
+  departments: string[];
 }
 
 export interface NLUResult {
   intent: 
     | 'GREETING'
+    | 'SELECT_DEPARTMENT'
     | 'SELECT_BRANCH'
     | 'SELECT_SERVICE'
     | 'SELECT_DOCTOR'
@@ -109,6 +166,7 @@ export interface NLUResult {
     | 'ANGRY_EXPRESSION'
     | 'UNKNOWN';
   entities: {
+    departmentName?: string;
     branchName?: string;
     serviceName?: string;
     doctorName?: string;

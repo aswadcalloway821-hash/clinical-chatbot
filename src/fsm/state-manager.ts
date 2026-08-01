@@ -26,28 +26,32 @@ export class FsmStateManager {
 
     if (isExplicitReset) {
       this.sessions.delete(phone);
-      const patientTag = await GoogleSheetsService.getPatientHistoryTag(phone);
+      const crmPatient = await GoogleSheetsService.lookupPatientCRM(phone);
       const newSession: PatientSession = {
         phoneNumber: phone,
         tenantId: tenant.tenantId,
         currentState: 'GREETING',
-        patientTag,
+        patientName: crmPatient?.patientName,
+        isReturningPatient: !!crmPatient,
+        patientTag: crmPatient ? 'RETURNING' : 'NEW',
         failedNluAttempts: 0,
         lastInteractionTime: Date.now()
       };
       this.sessions.set(phone, newSession);
-      return `تم تصفير المحادثة وإعادة الضبط بنجاح عيني. أهلاً بك في ${tenant.clinicName}. كيف أقدر أساعدك اليوم؟`;
+      return `تم تصفير المحادثة وإعادة الضبط بنجاح عيني. أهلاً بك في ${tenant.clinicName}. كيف أقدر أساعدك؟`;
     }
 
     let session = this.sessions.get(phone);
 
     if (!session) {
-      const patientTag = await GoogleSheetsService.getPatientHistoryTag(phone);
+      const crmPatient = await GoogleSheetsService.lookupPatientCRM(phone);
       session = {
         phoneNumber: phone,
         tenantId: tenant.tenantId,
         currentState: 'GREETING',
-        patientTag,
+        patientName: crmPatient?.patientName,
+        isReturningPatient: !!crmPatient,
+        patientTag: crmPatient ? 'RETURNING' : 'NEW',
         failedNluAttempts: 0,
         lastInteractionTime: Date.now()
       };
@@ -69,17 +73,21 @@ export class FsmStateManager {
       nluResult.intent === 'ANGRY_EXPRESSION' ||
       HandoffManager.shouldTriggerHandoff(session, nluResult.intent, nluResult.confidence)
     ) {
+      await GoogleSheetsService.logComplaint({
+        timestamp: new Date().toISOString(),
+        patientName: session.patientName || 'مراجع كريم',
+        phoneNumber: phone,
+        complaintContent: messageText,
+        status: 'PENDING'
+      });
       return HandoffManager.executeHandoff(session, tenant);
     }
 
     // 3. Freeze & Resume Protocol (General FAQ Inquiries only)
     if (nluResult.intent === 'ASK_FAQ') {
       const faqAnswer = await GeminiService.answerFaq(messageText, tenant);
-      
-      // Resume instruction for current state without repeating greetings
       const sliced = ContextSlicer.slice(session, tenant, messageText);
-      const resumePrompt = await GeminiService.generateIraqiResponse(sliced);
-
+      const resumePrompt = await GeminiService.generateIraqiResponse(sliced, tenant);
       return `${faqAnswer}\n${resumePrompt}`;
     }
 
@@ -88,13 +96,40 @@ export class FsmStateManager {
 
     switch (session.currentState) {
       case 'GREETING':
-        // Move to SELECT_BRANCH or SELECT_SERVICE
-        if (nluResult.entities.branchName) {
-          const matchBranch = tenant.branches.find(b => b.name.includes(nluResult.entities.branchName!));
-          if (matchBranch) session.selectedBranchId = matchBranch.id;
+        if (nluResult.entities.departmentName) {
+          session.selectedDepartment = nluResult.entities.departmentName;
         }
-        session.currentState = 'SELECT_BRANCH';
+        if (tenant.departments && tenant.departments.length > 0) {
+          session.currentState = 'SELECT_DEPARTMENT';
+        } else {
+          session.currentState = 'SELECT_BRANCH';
+        }
         session.failedNluAttempts = 0;
+        break;
+
+      case 'SELECT_DEPARTMENT':
+        if (nluResult.entities.departmentName) {
+          session.selectedDepartment = nluResult.entities.departmentName;
+          session.failedNluAttempts = 0;
+        } else if (tenant.departments && tenant.departments.length > 0) {
+          const matchDept = tenant.departments.find(d => messageText.includes(d));
+          session.selectedDepartment = matchDept || tenant.departments[0];
+        }
+
+        // Auto-Branch Resolution: If only 1 branch offers this department, auto-select it!
+        const matchingBranches = tenant.branches.filter(b => {
+          const deptServices = tenant.services.filter(s => s.department === session.selectedDepartment);
+          const deptDoctors = tenant.doctors.filter(d => deptServices.some(s => s.doctorName === d.name || !s.doctorName));
+          return deptDoctors.some(d => d.branchName === b.name || d.branchId === b.id);
+        });
+
+        if (matchingBranches.length === 1) {
+          session.selectedBranchId = matchingBranches[0].id;
+          session.selectedBranchName = matchingBranches[0].name;
+          session.currentState = 'SELECT_SERVICE';
+        } else {
+          session.currentState = 'SELECT_BRANCH';
+        }
         break;
 
       case 'SELECT_BRANCH':
@@ -102,52 +137,69 @@ export class FsmStateManager {
           const matchBranch = tenant.branches.find(b => b.name.includes(nluResult.entities.branchName!));
           if (matchBranch) {
             session.selectedBranchId = matchBranch.id;
+            session.selectedBranchName = matchBranch.name;
             session.currentState = 'SELECT_SERVICE';
             session.failedNluAttempts = 0;
           } else {
             session.failedNluAttempts++;
           }
         } else {
-          // Default to first branch if user selected option 1
-          session.selectedBranchId = tenant.branches[0].id;
+          // Default to matching branch or first branch
+          const matchBranch = tenant.branches.find(b => messageText.includes(b.name)) || tenant.branches[0];
+          session.selectedBranchId = matchBranch.id;
+          session.selectedBranchName = matchBranch.name;
           session.currentState = 'SELECT_SERVICE';
         }
         break;
 
       case 'SELECT_SERVICE':
+        const deptServices = session.selectedDepartment
+          ? tenant.services.filter(s => s.department === session.selectedDepartment)
+          : tenant.services;
+
         if (nluResult.entities.serviceName) {
-          const matchService = tenant.services.find(s => s.name.includes(nluResult.entities.serviceName!));
+          const matchService = (deptServices.length > 0 ? deptServices : tenant.services).find(s => s.name.includes(nluResult.entities.serviceName!));
           if (matchService) {
             session.selectedServiceId = matchService.id;
+            session.selectedServiceName = matchService.name;
             session.currentState = 'SELECT_DOCTOR';
             session.failedNluAttempts = 0;
           } else {
             session.failedNluAttempts++;
           }
         } else {
-          session.selectedServiceId = tenant.services[0].id;
+          const matchService = (deptServices.length > 0 ? deptServices : tenant.services)[0];
+          session.selectedServiceId = matchService.id;
+          session.selectedServiceName = matchService.name;
           session.currentState = 'SELECT_DOCTOR';
         }
         break;
 
       case 'SELECT_DOCTOR':
+        const selectedBranchDoctors = tenant.doctors.filter(
+          d => (!session.selectedBranchId || d.branchId === session.selectedBranchId || d.branchName === session.selectedBranchName)
+        );
+
         if (nluResult.entities.doctorName) {
-          const matchDoctor = tenant.doctors.find(d => d.name.includes(nluResult.entities.doctorName!));
+          const matchDoctor = (selectedBranchDoctors.length > 0 ? selectedBranchDoctors : tenant.doctors).find(d => d.name.includes(nluResult.entities.doctorName!));
           if (matchDoctor) {
             session.selectedDoctorId = matchDoctor.id;
+            session.selectedDoctorName = matchDoctor.name;
             session.currentState = 'SELECT_DATE_TIME';
             session.failedNluAttempts = 0;
           } else {
             session.failedNluAttempts++;
           }
         } else {
-          session.selectedDoctorId = tenant.doctors[0].id;
+          const matchDoctor = (selectedBranchDoctors.length > 0 ? selectedBranchDoctors : tenant.doctors)[0];
+          session.selectedDoctorId = matchDoctor.id;
+          session.selectedDoctorName = matchDoctor.name;
           session.currentState = 'SELECT_DATE_TIME';
         }
 
-        // Generate available slots & lock temporary slot
+        // Generate available slots & lock temporary slot from Doctor's specific Calendar
         if (session.selectedDoctorId) {
-          const doctor = tenant.doctors.find(d => d.id === session.selectedDoctorId)!;
+          const doctor = tenant.doctors.find(d => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName)!;
           const todayDate = new Date().toISOString().split('T')[0];
           const slots = SlotGenerator.generateAvailableSlots(doctor, todayDate, []);
           
@@ -160,7 +212,12 @@ export class FsmStateManager {
 
       case 'SELECT_DATE_TIME':
         if (nluResult.intent === 'SELECT_SLOT' || nluResult.intent === 'CONFIRM' || session.selectedSlot) {
-          session.currentState = 'COLLECT_PATIENT_NAME';
+          // Zero-Reask CRM Protocol: Returning Patient Bypass!
+          if (session.patientName) {
+            session.currentState = 'CONFIRMATION_PENDING';
+          } else {
+            session.currentState = 'COLLECT_PATIENT_NAME';
+          }
           session.failedNluAttempts = 0;
         } else {
           session.failedNluAttempts++;
@@ -180,33 +237,42 @@ export class FsmStateManager {
       case 'CONFIRMATION_PENDING':
         if (nluResult.intent === 'CONFIRM' || messageText.includes('نعم') || messageText.includes('تأكيد') || messageText.includes('اوكي')) {
           session.currentState = 'CONFIRMED';
-          session.bookingCode = GoogleSheetsService.generateBookingCode();
+          session.bookingCode = `BK-${Math.floor(1000 + Math.random() * 9000)}`;
 
-          const branch = tenant.branches.find(b => b.id === session.selectedBranchId)!;
-          const doctor = tenant.doctors.find(d => d.id === session.selectedDoctorId)!;
-          const service = tenant.services.find(s => s.id === session.selectedServiceId)!;
+          const branch = tenant.branches.find(b => b.id === session.selectedBranchId || b.name === session.selectedBranchName) || tenant.branches[0];
+          const doctor = tenant.doctors.find(d => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName) || tenant.doctors[0];
+          const service = tenant.services.find(s => s.id === session.selectedServiceId || s.name === session.selectedServiceName) || tenant.services[0];
 
           const booking: Booking = {
             bookingCode: session.bookingCode,
             tenantId: tenant.tenantId,
             patientPhone: phone,
             patientName: session.patientName || 'مراجع كريم',
-            patientTag: session.patientTag || 'NEW',
+            patientTag: session.isReturningPatient ? 'RETURNING' : 'NEW',
             branchId: branch.id,
             branchName: branch.name,
             doctorId: doctor.id,
             doctorName: doctor.name,
             serviceId: service.id,
             serviceName: service.name,
+            department: session.selectedDepartment || 'عام',
             date: session.selectedSlot?.date || new Date().toISOString().split('T')[0],
             startTime: session.selectedSlot?.startTime || '16:00',
             endTime: session.selectedSlot?.endTime || '16:30',
+            durationMinutes: service.durationMinutes || 30,
             status: 'CONFIRMED',
             createdAt: new Date().toISOString()
           };
 
-          // Save to Google Sheets DB & Sync to Google Calendar
+          // Save to Google Sheets DB (Bookings + Patients_CRM) & Sync to Google Calendar
           await GoogleSheetsService.saveBooking(booking);
+          await GoogleSheetsService.savePatientCRM({
+            phoneNumber: phone,
+            patientName: session.patientName || 'مراجع كريم',
+            platform: 'WhatsApp',
+            totalBookings: 1,
+            lastVisitDate: booking.date
+          });
           await GoogleCalendarService.syncAppointment(booking, doctor);
         } else if (nluResult.intent === 'CANCEL') {
           if (session.selectedSlot) SlotGenerator.unlockSlot(session.selectedSlot);
@@ -216,7 +282,6 @@ export class FsmStateManager {
         break;
 
       case 'CONFIRMED':
-        // If patient responds after confirmation, greet nicely
         session.currentState = 'GREETING';
         break;
     }
