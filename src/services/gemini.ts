@@ -22,7 +22,7 @@ export class GeminiService {
 قواعد أمان عليا وحازمة جداً (STRICT SYSTEM RULES):
 1. اسم العيادة والمركز الوحيد والحقيقي هو حصراً "${tenant.clinicName}".
 2. يُمنع منعاً باتاً وقطيعاً تلفظ أو كتابة أي اسم آخر مثل "مركز الحياة" أو "مركز الحياة الطبي" إطلاقاً وتحت أي ظرف!
-3. الفروع المتاحة حصراً بالعيادة هي: ${branchNames}. يُمنع منعاً باتاً ذكر فروع أخرى مثل (المنصور، الكرادة، بغداد) لأن العيادة بالبصرة فقط!
+3. الفروع المتاحة حصراً بالعيادة هي: ${branchNames}. يُمنع منعاً باتاً اختراع أو ذكر أي فروع غير مذكورة بالقائمة أعلاه!
 4. الأطباء المتاحون حصراً هم: ${doctorNames}.
 5. التحدث بلغة عراقية بغدادية عفوية ومباشرة بدون رموز أو نجوم أو تنسيقات Markdown (*, **, #).
 `;
@@ -72,7 +72,7 @@ export class GeminiService {
 `;
 
     try {
-      const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+      const modelName = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
       const model = genAI.getGenerativeModel({
         model: modelName,
         systemInstruction: this.getSystemInstruction(tenant),
@@ -114,7 +114,7 @@ export class GeminiService {
 `;
 
     try {
-      const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+      const modelName = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
       const dummyTenant: TenantConfig = {
         tenantId: 't1',
         clinicName: slicedContext.clinicName,
@@ -158,13 +158,13 @@ export class GeminiService {
 المعلومات الرسمية المتاحة لـ "${tenant.clinicName}":
 الأسئلة الشائعة: ${JSON.stringify(tenant.faqs)}
 الخدمات والأسعار: ${JSON.stringify(tenant.services)}
-الفروع والمواقع الحقيقية بالبصرة: ${JSON.stringify(tenant.branches)}
+الفروع والمواقع: ${JSON.stringify(tenant.branches)}
 
 أجيبي عن سؤال المريض بلهجة عراقية عفوية جداً وبدون أي تنميق أو تنسيق Markdown.
 `;
 
     try {
-      const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+      const modelName = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
       const model = genAI.getGenerativeModel({
         model: modelName,
         systemInstruction: this.getSystemInstruction(tenant)
