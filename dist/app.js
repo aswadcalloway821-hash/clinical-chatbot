@@ -1258,6 +1258,7 @@ ${resumePrompt}`;
               status: "CONFIRMED",
               createdAt: (/* @__PURE__ */ new Date()).toISOString()
             };
+            await GoogleCalendarService.syncAppointment(booking, doctor);
             await GoogleSheetsService.saveBooking(booking);
             await GoogleSheetsService.savePatientCRM({
               phoneNumber: phone,
@@ -1266,7 +1267,6 @@ ${resumePrompt}`;
               totalBookings: 1,
               lastVisitDate: booking.date
             });
-            await GoogleCalendarService.syncAppointment(booking, doctor);
           } else if (nluResult.intent === "CANCEL") {
             if (session.selectedSlot) SlotGenerator.unlockSlot(session.selectedSlot);
             session.currentState = "GREETING";

@@ -335,7 +335,8 @@ export class FsmStateManager {
               createdAt: new Date().toISOString()
             };
 
-            // Throttled CRM Write & Booking Persistence: Save ONLY when final digital receipt is being issued!
+            // Calendar-First Fix: Lock in Google Calendar FIRST, then record in Google Sheets DB & Patients_CRM!
+            await GoogleCalendarService.syncAppointment(booking, doctor);
             await GoogleSheetsService.saveBooking(booking);
             await GoogleSheetsService.savePatientCRM({
               phoneNumber: phone,
@@ -344,7 +345,6 @@ export class FsmStateManager {
               totalBookings: 1,
               lastVisitDate: booking.date
             });
-            await GoogleCalendarService.syncAppointment(booking, doctor);
           } else if (nluResult.intent === 'CANCEL') {
             if (session.selectedSlot) SlotGenerator.unlockSlot(session.selectedSlot);
             session.currentState = 'GREETING';
