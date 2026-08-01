@@ -165,20 +165,28 @@ export class FsmStateManager {
 
       switch (session.currentState) {
         case 'GREETING':
-          if (inputIndex >= 0 && tenant.departments && inputIndex < tenant.departments.length) {
-            session.selectedDepartment = tenant.departments[inputIndex];
-          } else if (nluResult.entities.departmentName) {
-            session.selectedDepartment = nluResult.entities.departmentName;
+          // One-Shot extraction on initial message if user already provided info
+          const initBranch = tenant.branches.find(b => messageText.includes(b.name) || (nluResult.entities.branchName && b.name.includes(nluResult.entities.branchName)));
+          const initDept = (tenant.departments || []).find(d => messageText.includes(d) || (nluResult.entities.departmentName && d.includes(nluResult.entities.departmentName)));
+
+          if (initBranch) {
+            session.selectedBranchId = initBranch.id;
+            session.selectedBranchName = initBranch.name;
           }
-          if (tenant.departments && tenant.departments.length > 0) {
-            session.currentState = 'SELECT_DEPARTMENT';
+          if (initDept) {
+            session.selectedDepartment = initDept;
+          }
+
+          if (session.selectedBranchId && session.selectedDepartment) {
+            session.currentState = 'SELECT_SERVICE';
           } else {
-            session.currentState = 'SELECT_BRANCH';
+            session.currentState = 'SELECT_DEPARTMENT';
           }
           session.failedNluAttempts = 0;
           break;
 
         case 'SELECT_DEPARTMENT':
+          // Check for direct index or text match for department
           if (inputIndex >= 0 && tenant.departments && inputIndex < tenant.departments.length) {
             session.selectedDepartment = tenant.departments[inputIndex];
             session.failedNluAttempts = 0;
@@ -187,19 +195,28 @@ export class FsmStateManager {
             session.failedNluAttempts = 0;
           } else if (tenant.departments && tenant.departments.length > 0) {
             const matchDept = tenant.departments.find(d => messageText.includes(d));
-            session.selectedDepartment = matchDept || tenant.departments[0];
+            session.selectedDepartment = matchDept || session.selectedDepartment || tenant.departments[0];
           }
 
-          // Auto-Branch Resolution Gate: If only 1 branch offers this department and user didn't request full list, auto-select it!
+          // Check if user also mentioned branch in the same message
+          const matchedBranchInDept = tenant.branches.find(b => messageText.includes(b.name) || (nluResult.entities.branchName && b.name.includes(nluResult.entities.branchName)));
+          if (matchedBranchInDept) {
+            session.selectedBranchId = matchedBranchInDept.id;
+            session.selectedBranchName = matchedBranchInDept.name;
+          }
+
+          // Auto-Branch Resolution Gate: If branch is already known or only 1 branch offers this department
           const matchingBranches = tenant.branches.filter(b => {
             const deptServices = tenant.services.filter(s => s.department === session.selectedDepartment);
             const deptDoctors = tenant.doctors.filter(d => deptServices.some(s => s.doctorName === d.name || !s.doctorName));
             return deptDoctors.some(d => d.branchName === b.name || d.branchId === b.id);
           });
 
-          if (matchingBranches.length === 1 && !requestsFullBranches) {
-            session.selectedBranchId = matchingBranches[0].id;
-            session.selectedBranchName = matchingBranches[0].name;
+          if (session.selectedBranchId || (matchingBranches.length === 1 && !requestsFullBranches)) {
+            if (!session.selectedBranchId && matchingBranches.length === 1) {
+              session.selectedBranchId = matchingBranches[0].id;
+              session.selectedBranchName = matchingBranches[0].name;
+            }
             session.currentState = 'SELECT_SERVICE';
           } else {
             session.currentState = 'SELECT_BRANCH';
