@@ -86,6 +86,8 @@ export interface PatientSession {
   lastInteractionTime: number;
   interruptedState?: BookingState; // For Freeze & Resume protocol
   bookingCode?: string;
+  dailyMessageCount?: number;
+  lastMessageDate?: string;
 }
 
 export interface Booking {
