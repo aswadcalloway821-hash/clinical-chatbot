@@ -44,13 +44,10 @@ export class ReminderJob {
           // Trigger reminder if appointment is between 3.5 and 4.5 hours away
           if (diffHours >= 3.5 && diffHours <= 4.5) {
             const reminderMessage = 
-`يا هلا بيك عيني أستاذ/أستاذة ${patientName}! 🌸
-
-نحب نذكرك بموعدك اللطيف اليوم الساعة ${timePart} بـ ${tenant.clinicName} (${branchName}). كادرنا بانتظارك وينتظر زيارتك بكل رحابة صدر.
-
-إذا طرأ عندك أي ظرف حاب تعدل وقت الموعد أو تأجله، تدلل وماكو أي إشكال إطلاقاً، فقط أرسل لي كلمة (تعديل) أو (إلغاء) وأنا بخدمتك بلي تحتاجه.
-
-ننتظرك تنورنا اليوم! ✨`;
+`مرحباً أستاذ/ست ${patientName} 🌸
+نحب نذكرك بموعدك اليوم الساعة ${timePart} بـ ${tenant.clinicName} (${branchName}).
+ننتظرك تنورنا بالعيادة!
+اذا عندك أي ظرف وحبّيت نغير بلحجز او نلغي تدلل وماكو أي إشكال,  بس بلغنا وأنا بخدمتك.`;
 
             console.log(`[Scheduled Reminder Job] Sending 4-hour pre-appointment reminder to ${patientName} (${phone}) for booking ${bookingCode}`);
             
