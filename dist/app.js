@@ -251,10 +251,29 @@ var ContextSlicer = class {
         };
         break;
       case "CONFIRMED":
-        stepInstruction = "\u0623\u0643\u062F\u064A \u0627\u0644\u062D\u062C\u0632 \u0644\u0644\u0645\u0631\u0627\u062C\u0639 \u0648\u0632\u0648\u062F\u064A\u0647 \u0628\u0643\u0648\u062F \u0627\u0644\u062D\u062C\u0632 \u0648\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0648\u0627\u0644\u062A\u0645\u0646\u064A \u0644\u0647 \u0628\u0627\u0644\u0633\u0644\u0627\u0645\u0629 \u0648\u0627\u0644\u0635\u062D\u0629.";
+        const confBranch = tenant.branches.find((b) => b.id === session.selectedBranchId || b.name === session.selectedBranchName) || tenant.branches[0];
+        const confService = tenant.services.find((s) => s.id === session.selectedServiceId || s.name === session.selectedServiceName) || tenant.services[0];
+        stepInstruction = `\u0623\u0635\u062F\u0631\u064A \u0627\u0644\u0648\u0635\u0644 \u0627\u0644\u0631\u0642\u0645\u064A \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0627\u0644\u0623\u0646\u064A\u0642 \u0644\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0646\u0641\u0633 \u0627\u0644\u062A\u0646\u0633\u064A\u0642 \u0627\u0644\u062A\u0627\u0645 \u0627\u0644\u062A\u0627\u0644\u064A \u0628\u062F\u0648\u0646 \u0632\u064A\u0627\u062F\u0629 \u0623\u0648 \u0646\u0642\u0635\u0627\u0646:
+\u062A\u0645 \u062A\u062B\u0628\u064A\u062A \u062D\u062C\u0632\u0643 \u0628\u0646\u062C\u0627\u062D \u0648\u0628\u0634\u0643\u0644 \u0646\u0647\u0627\u0626\u064A \u0639\u064A\u0646\u064A! \u2705
+
+\u{1F4CB} \u062A\u0641\u0627\u0635\u064A\u0644 \u0645\u0648\u0639\u062F\u0643:
+- \u0627\u0644\u062E\u062F\u0645\u0629: ${confService.name}
+- \u0627\u0644\u0645\u0648\u0639\u062F: ${session.selectedSlot?.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${session.selectedSlot?.startTime}
+- \u0643\u0648\u062F \u0627\u0644\u062D\u062C\u0632: ${session.bookingCode}
+
+\u{1F4CD} \u0631\u0627\u0628\u0637 \u062E\u0631\u064A\u0637\u0629 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u062C\u063A\u0631\u0627\u0641\u064A:
+${confBranch.locationLink || "\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0631\u0626\u064A\u0633\u064A"}
+
+\u26A0\uFE0F \u062A\u0639\u0644\u064A\u0645\u0627\u062A \u0647\u0627\u0645\u0629 \u0642\u0628\u0644 \u0627\u0644\u062D\u0636\u0648\u0631: ${confService.preAppointmentInstructions || "\u064A\u0631\u062C\u0649 \u0627\u0644\u062D\u0636\u0648\u0631 \u0642\u0628\u0644 \u0627\u0644\u0645\u0648\u0639\u062F \u0628\u0640 15 \u062F\u0642\u064A\u0642\u0629 \u0645\u0635\u062D\u0648\u0628\u0627\u064B \u0628\u0627\u0644\u0647\u0648\u064A\u0629 \u0627\u0644\u0634\u062E\u0635\u064A\u0629."}
+
+\u0646\u0646\u062A\u0638\u0631\u0643 \u062A\u0646\u0648\u0631\u0646\u0627 \u0628\u0640 \u0627\u0644\u0639\u064A\u0627\u062F\u0629! \u{1F338}`;
         stepData = {
           bookingCode: session.bookingCode,
-          patientName: session.patientName
+          patientName: session.patientName,
+          serviceName: confService.name,
+          locationLink: confBranch.locationLink || "",
+          date: session.selectedSlot?.date,
+          startTime: session.selectedSlot?.startTime
         };
         break;
       case "HUMAN_HANDOFF":
@@ -350,9 +369,18 @@ var AtomicLockManager = class {
 // src/services/slot-generator.ts
 var SlotGenerator = class {
   /**
-   * Generate available time slots for a doctor on a specific date (YYYY-MM-DD)
+   * Helper to get Tomorrow's Date (YYYY-MM-DD) for Tomorrow-First slot generation
    */
-  static generateAvailableSlots(doctor, date, existingBookings) {
+  static getTomorrowDate() {
+    const tomorrow = /* @__PURE__ */ new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split("T")[0];
+  }
+  /**
+   * Generate available time slots for a doctor starting from tomorrow or specific date (YYYY-MM-DD).
+   * Applies 1.2x Human Buffer Multiplier for realistic operational margin.
+   */
+  static generateAvailableSlots(doctor, date, existingBookings, serviceDurationMinutes = 30) {
     const slots = [];
     const dateObj = new Date(date);
     const dayOfWeek = dateObj.getDay();
@@ -360,12 +388,13 @@ var SlotGenerator = class {
       return slots;
     }
     const { startHour, endHour, slotDurationMinutes } = doctor.workingHours;
+    const effectiveDuration = Math.ceil((serviceDurationMinutes || slotDurationMinutes) * 1.2);
     let currentMinute = startHour * 60;
     const endMinute = endHour * 60;
-    while (currentMinute + slotDurationMinutes <= endMinute) {
+    while (currentMinute + effectiveDuration <= endMinute) {
       const startH = Math.floor(currentMinute / 60).toString().padStart(2, "0");
       const startM = (currentMinute % 60).toString().padStart(2, "0");
-      const endSlotMinute = currentMinute + slotDurationMinutes;
+      const endSlotMinute = currentMinute + effectiveDuration;
       const endH = Math.floor(endSlotMinute / 60).toString().padStart(2, "0");
       const endM = (endSlotMinute % 60).toString().padStart(2, "0");
       const startTime = `${startH}:${startM}`;
@@ -385,7 +414,7 @@ var SlotGenerator = class {
           isLocked: false
         });
       }
-      currentMinute += slotDurationMinutes;
+      currentMinute += effectiveDuration;
     }
     return slots;
   }
@@ -775,6 +804,72 @@ var GoogleSheetsService = class {
       console.error("[Google Sheets Save Booking Error]:", err);
     }
   }
+  /**
+   * Find Active Booking by Patient Phone Number or Booking Code
+   */
+  static async findActiveBookingByPhone(phoneNumber) {
+    try {
+      const rows = await this.fetchSheetValues("Bookings!A1:Z500");
+      if (!rows || rows.length < 2) return null;
+      const cleanPhone = phoneNumber.replace(/[^0-9]/g, "");
+      for (let i = rows.length - 1; i >= 1; i--) {
+        const r = rows[i];
+        const code = r[0] || "";
+        const phone = (r[2] || "").replace(/[^0-9]/g, "");
+        const status = (r[7] || "").toUpperCase();
+        if ((phone === cleanPhone || code.includes(phoneNumber)) && status !== "CANCELLED") {
+          return {
+            bookingCode: code,
+            patientName: r[1] || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
+            patientPhone: r[2] || phoneNumber,
+            branchName: r[3] || "",
+            serviceName: r[4] || "",
+            date: (r[5] || "").split(" ")[0] || "",
+            startTime: (r[5] || "").split(" ")[1] || "",
+            durationMinutes: parseInt(r[6]) || 30,
+            status,
+            notes: r[8] || "",
+            doctorName: r[9] || "",
+            tenantId: "live_sheet",
+            branchId: "",
+            doctorId: "",
+            serviceId: "",
+            createdAt: ""
+          };
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * Cancel Active Booking in Google Sheets Bookings tab
+   */
+  static async cancelBookingInSheet(bookingCode) {
+    try {
+      const token = await this.getAccessToken();
+      if (!token) return false;
+      const rows = await this.fetchSheetValues("Bookings!A1:Z500");
+      if (!rows || rows.length < 2) return false;
+      for (let i = 1; i < rows.length; i++) {
+        const code = rows[i][0] || "";
+        if (code === bookingCode) {
+          const rowIndex = i + 1;
+          const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Bookings!H${rowIndex}?valueInputOption=USER_ENTERED`;
+          const res = await fetch(url, {
+            method: "PUT",
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ values: [["CANCELLED"]] })
+          });
+          return res.ok;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
 };
 
 // src/services/google-calendar.ts
@@ -832,15 +927,35 @@ var GoogleCalendarService = class {
         },
         body: JSON.stringify(event)
       });
-      const data = await res.json();
       if (res.ok) {
-        console.log(`[Google Calendar REST API] Synced event: ${data.id}`);
+        const data = await res.json();
+        console.log(`[Google Calendar API] Synced appointment for ${booking.patientName} -> Event ID: ${data.id}`);
         return data.id || null;
+      } else {
+        console.warn(`[Google Calendar API Warning]: HTTP ${res.status}`);
+        return null;
       }
+    } catch (err) {
+      console.warn("[Google Calendar API Exception]:", err);
       return null;
-    } catch (error) {
-      console.warn("[Google Calendar Sync Warning]:", error);
-      return null;
+    }
+  }
+  /**
+   * Cancel event in Google Calendar
+   */
+  static async cancelAppointment(calendarId, eventId) {
+    try {
+      const token = await this.getAccessToken();
+      if (!token || !eventId) return false;
+      const calId = calendarId || "primary";
+      const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(eventId)}`;
+      const res = await fetch(url, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      return res.ok;
+    } catch {
+      return false;
     }
   }
 };
@@ -894,6 +1009,28 @@ var FsmStateManager = class {
       session.currentState,
       tenant
     );
+    const isCancelRequest = nluResult.intent === "CANCEL_BOOKING" || /إلغاء الحجز|الغاء الحجز|الغي الحجز|أريد ألغي/i.test(messageText);
+    const isModifyRequest = nluResult.intent === "MODIFY_BOOKING" || /تعديل الحجز|أغير الموعد|تغيير الموعد/i.test(messageText);
+    if (isCancelRequest || isModifyRequest) {
+      const activeBooking = await GoogleSheetsService.findActiveBookingByPhone(phone);
+      if (activeBooking) {
+        if (isCancelRequest) {
+          const success = await GoogleSheetsService.cancelBookingInSheet(activeBooking.bookingCode);
+          if (success) {
+            this.sessions.delete(phone);
+            return `\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u062D\u062C\u0632\u0643 \u0627\u0644\u0633\u0627\u0628\u0642 (${activeBooking.bookingCode}) \u0628\u0646\u062C\u0627\u062D \u0639\u064A\u0646\u064A. \u0625\u0630\u0627 \u062D\u0628\u064A\u062A \u062A\u062D\u062C\u0632 \u0645\u0648\u0639\u062F \u062C\u062F\u064A\u062F \u0628\u0623\u064A \u0648\u0642\u062A\u060C \u0625\u062D\u0646\u0627 \u0628\u0627\u0646\u062A\u0638\u0627\u0631\u0643 \u0628\u0631\u062D\u0627\u0628\u0629 \u0635\u062F\u0631! \u{1F338}`;
+          } else {
+            return `\u0639\u064A\u0646\u064A \u062D\u0627\u0648\u0644\u0646\u0627 \u0646\u0644\u063A\u064A \u0627\u0644\u062D\u062C\u0632 \u0644\u0643\u0648\u062F ${activeBooking.bookingCode} \u0648\u0628\u0633 \u0635\u0627\u0631 \u062E\u0644\u0644 \u0628\u0627\u0644\u0634\u0628\u0643\u0629\u060C \u0631\u0627\u062D \u0646\u062D\u0648\u0644\u0643 \u0644\u0640 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631 \u0644\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0645\u0628\u0627\u0634\u0631.`;
+          }
+        } else if (isModifyRequest) {
+          await GoogleSheetsService.cancelBookingInSheet(activeBooking.bookingCode);
+          session.currentState = "GREETING";
+          return `\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u062D\u062C\u0632\u0643 \u0627\u0644\u0633\u0627\u0628\u0642 (${activeBooking.bookingCode}) \u0644\u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0645\u0648\u0639\u062F. \u062A\u0641\u0636\u0644 \u0627\u062E\u062A\u0627\u0631 \u0627\u0644\u0642\u0633\u0645 \u0648\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0645\u0646\u0627\u0633\u0628 \u0625\u0644\u0643 \u0644\u062A\u062B\u0628\u064A\u062A \u0645\u0648\u0639\u062F\u0643 \u0627\u0644\u062C\u062F\u064A\u062F! \u2728`;
+        }
+      } else {
+        return `\u0639\u064A\u0646\u064A \u0645\u0627 \u0644\u0642\u064A\u0646\u0627 \u062D\u062C\u0632 \u0646\u0634\u0637 \u0645\u0633\u062C\u0644 \u0628\u0647\u0627\u062F \u0627\u0644\u0631\u0642\u0645. \u0625\u0630\u0627 \u062A\u062D\u0628 \u062A\u062B\u0628\u062A \u062D\u062C\u0632 \u062C\u062F\u064A\u062F\u060C \u0643\u0644\u064A\u0644\u064A \u0634\u0646\u0648 \u0627\u0644\u0642\u0633\u0645 \u0623\u0648 \u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0645\u062D\u062A\u0627\u062C\u0647\u0627 \u0648\u062A\u062F\u0644\u0644!`;
+      }
+    }
     if (nluResult.intent === "REQUEST_HUMAN" || nluResult.intent === "ANGRY_EXPRESSION" || HandoffManager.shouldTriggerHandoff(session, nluResult.intent, nluResult.confidence)) {
       await GoogleSheetsService.logComplaint({
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -902,6 +1039,15 @@ var FsmStateManager = class {
         complaintContent: messageText,
         status: "PENDING"
       });
+      if (session.patientName) {
+        await GoogleSheetsService.savePatientCRM({
+          phoneNumber: phone,
+          patientName: session.patientName,
+          platform: "WhatsApp",
+          totalBookings: 1,
+          lastVisitDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
+        });
+      }
       return HandoffManager.executeHandoff(session, tenant);
     }
     if (nluResult.intent === "ASK_FAQ") {
@@ -1010,8 +1156,9 @@ ${resumePrompt}`;
         }
         if (session.selectedDoctorId) {
           const doctor = tenant.doctors.find((d) => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName);
-          const todayDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-          const slots = SlotGenerator.generateAvailableSlots(doctor, todayDate, []);
+          const service = tenant.services.find((s) => s.id === session.selectedServiceId || s.name === session.selectedServiceName);
+          const tomorrowDate = SlotGenerator.getTomorrowDate();
+          const slots = SlotGenerator.generateAvailableSlots(doctor, tomorrowDate, [], service?.durationMinutes || 30);
           if (slots.length > 0) {
             session.selectedSlot = slots[0];
             SlotGenerator.lockSlotTemporarily(slots[0]);
@@ -1059,10 +1206,10 @@ ${resumePrompt}`;
             serviceId: service.id,
             serviceName: service.name,
             department: session.selectedDepartment || "\u0639\u0627\u0645",
-            date: session.selectedSlot?.date || (/* @__PURE__ */ new Date()).toISOString().split("T")[0],
+            date: session.selectedSlot?.date || SlotGenerator.getTomorrowDate(),
             startTime: session.selectedSlot?.startTime || "16:00",
-            endTime: session.selectedSlot?.endTime || "16:30",
-            durationMinutes: service.durationMinutes || 30,
+            endTime: session.selectedSlot?.endTime || "16:36",
+            durationMinutes: Math.ceil((service.durationMinutes || 30) * 1.2),
             status: "CONFIRMED",
             createdAt: (/* @__PURE__ */ new Date()).toISOString()
           };

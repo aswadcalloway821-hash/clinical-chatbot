@@ -428,4 +428,77 @@ export class GoogleSheetsService {
       console.error('[Google Sheets Save Booking Error]:', err);
     }
   }
+
+  /**
+   * Find Active Booking by Patient Phone Number or Booking Code
+   */
+  public static async findActiveBookingByPhone(phoneNumber: string): Promise<Booking | null> {
+    try {
+      const rows = await this.fetchSheetValues('Bookings!A1:Z500');
+      if (!rows || rows.length < 2) return null;
+
+      const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+
+      for (let i = rows.length - 1; i >= 1; i--) {
+        const r = rows[i];
+        const code = r[0] || '';
+        const phone = (r[2] || '').replace(/[^0-9]/g, '');
+        const status = (r[7] || '').toUpperCase();
+
+        if ((phone === cleanPhone || code.includes(phoneNumber)) && status !== 'CANCELLED') {
+          return {
+            bookingCode: code,
+            patientName: r[1] || 'مراجع كريم',
+            patientPhone: r[2] || phoneNumber,
+            branchName: r[3] || '',
+            serviceName: r[4] || '',
+            date: (r[5] || '').split(' ')[0] || '',
+            startTime: (r[5] || '').split(' ')[1] || '',
+            durationMinutes: parseInt(r[6]) || 30,
+            status: status,
+            notes: r[8] || '',
+            doctorName: r[9] || '',
+            tenantId: 'live_sheet',
+            branchId: '',
+            doctorId: '',
+            serviceId: '',
+            createdAt: ''
+          };
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Cancel Active Booking in Google Sheets Bookings tab
+   */
+  public static async cancelBookingInSheet(bookingCode: string): Promise<boolean> {
+    try {
+      const token = await this.getAccessToken();
+      if (!token) return false;
+
+      const rows = await this.fetchSheetValues('Bookings!A1:Z500');
+      if (!rows || rows.length < 2) return false;
+
+      for (let i = 1; i < rows.length; i++) {
+        const code = rows[i][0] || '';
+        if (code === bookingCode) {
+          const rowIndex = i + 1;
+          const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Bookings!H${rowIndex}?valueInputOption=USER_ENTERED`;
+          const res = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ values: [['CANCELLED']] })
+          });
+          return res.ok;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
 }

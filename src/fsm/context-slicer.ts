@@ -115,10 +115,29 @@ export class ContextSlicer {
         break;
 
       case 'CONFIRMED':
-        stepInstruction = 'أكدي الحجز للمراجع وزوديه بكود الحجز والتفاصيل والتمني له بالسلامة والصحة.';
+        const confBranch = tenant.branches.find(b => b.id === session.selectedBranchId || b.name === session.selectedBranchName) || tenant.branches[0];
+        const confService = tenant.services.find(s => s.id === session.selectedServiceId || s.name === session.selectedServiceName) || tenant.services[0];
+        stepInstruction = `أصدري الوصل الرقمي النهائي الأنيق للمراجع بنفس التنسيق التام التالي بدون زيادة أو نقصان:
+تم تثبيت حجزك بنجاح وبشكل نهائي عيني! ✅
+
+📋 تفاصيل موعدك:
+- الخدمة: ${confService.name}
+- الموعد: ${session.selectedSlot?.date} الساعة ${session.selectedSlot?.startTime}
+- كود الحجز: ${session.bookingCode}
+
+📍 رابط خريطة العيادة الجغرافي:
+${confBranch.locationLink || 'الفرع الرئيسي'}
+
+⚠️ تعليمات هامة قبل الحضور: ${confService.preAppointmentInstructions || 'يرجى الحضور قبل الموعد بـ 15 دقيقة مصحوباً بالهوية الشخصية.'}
+
+ننتظرك تنورنا بـ العيادة! 🌸`;
         stepData = {
           bookingCode: session.bookingCode,
-          patientName: session.patientName
+          patientName: session.patientName,
+          serviceName: confService.name,
+          locationLink: confBranch.locationLink || '',
+          date: session.selectedSlot?.date,
+          startTime: session.selectedSlot?.startTime
         };
         break;
 

@@ -3,12 +3,23 @@ import { AtomicLockManager } from './atomic-lock.js';
 
 export class SlotGenerator {
   /**
-   * Generate available time slots for a doctor on a specific date (YYYY-MM-DD)
+   * Helper to get Tomorrow's Date (YYYY-MM-DD) for Tomorrow-First slot generation
+   */
+  public static getTomorrowDate(): string {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  }
+
+  /**
+   * Generate available time slots for a doctor starting from tomorrow or specific date (YYYY-MM-DD).
+   * Applies 1.2x Human Buffer Multiplier for realistic operational margin.
    */
   public static generateAvailableSlots(
     doctor: Doctor,
     date: string,
-    existingBookings: Array<{ date: string; startTime: string; doctorId: string }>
+    existingBookings: Array<{ date: string; startTime: string; doctorId: string }>,
+    serviceDurationMinutes: number = 30
   ): TimeSlot[] {
     const slots: TimeSlot[] = [];
     const dateObj = new Date(date);
@@ -20,14 +31,18 @@ export class SlotGenerator {
     }
 
     const { startHour, endHour, slotDurationMinutes } = doctor.workingHours;
+    
+    // Apply 1.2x Human Buffer Multiplier to service duration (e.g. 30 mins * 1.2 = 36 mins)
+    const effectiveDuration = Math.ceil((serviceDurationMinutes || slotDurationMinutes) * 1.2);
+
     let currentMinute = startHour * 60;
     const endMinute = endHour * 60;
 
-    while (currentMinute + slotDurationMinutes <= endMinute) {
+    while (currentMinute + effectiveDuration <= endMinute) {
       const startH = Math.floor(currentMinute / 60).toString().padStart(2, '0');
       const startM = (currentMinute % 60).toString().padStart(2, '0');
 
-      const endSlotMinute = currentMinute + slotDurationMinutes;
+      const endSlotMinute = currentMinute + effectiveDuration;
       const endH = Math.floor(endSlotMinute / 60).toString().padStart(2, '0');
       const endM = (endSlotMinute % 60).toString().padStart(2, '0');
 
@@ -54,7 +69,8 @@ export class SlotGenerator {
         });
       }
 
-      currentMinute += slotDurationMinutes;
+      // Increment by effective duration with buffer
+      currentMinute += effectiveDuration;
     }
 
     return slots;

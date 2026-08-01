@@ -161,6 +161,8 @@ export interface NLUResult {
     | 'PROVIDE_NAME'
     | 'CONFIRM'
     | 'CANCEL'
+    | 'CANCEL_BOOKING'
+    | 'MODIFY_BOOKING'
     | 'ASK_FAQ'
     | 'REQUEST_HUMAN'
     | 'ANGRY_EXPRESSION'

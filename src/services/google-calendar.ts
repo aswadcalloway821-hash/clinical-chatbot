@@ -60,15 +60,39 @@ export class GoogleCalendarService {
         body: JSON.stringify(event)
       });
 
-      const data = await res.json() as any;
       if (res.ok) {
-        console.log(`[Google Calendar REST API] Synced event: ${data.id}`);
+        const data = await res.json() as any;
+        console.log(`[Google Calendar API] Synced appointment for ${booking.patientName} -> Event ID: ${data.id}`);
         return data.id || null;
+      } else {
+        console.warn(`[Google Calendar API Warning]: HTTP ${res.status}`);
+        return null;
       }
+    } catch (err) {
+      console.warn('[Google Calendar API Exception]:', err);
       return null;
-    } catch (error) {
-      console.warn('[Google Calendar Sync Warning]:', error);
-      return null;
+    }
+  }
+
+  /**
+   * Cancel event in Google Calendar
+   */
+  public static async cancelAppointment(calendarId: string, eventId: string): Promise<boolean> {
+    try {
+      const token = await this.getAccessToken();
+      if (!token || !eventId) return false;
+
+      const calId = calendarId || 'primary';
+      const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(eventId)}`;
+
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      return res.ok;
+    } catch {
+      return false;
     }
   }
 }

@@ -44,7 +44,7 @@ export class FsmStateManager {
 
     let session = this.sessions.get(phone);
 
-    // First-Touch CRM Pre-fetch: Lookup patient records on initial message
+    // First-Touch CRM Pre-fetch: Lookup patient records on initial message (Read-only, no write until final receipt!)
     if (!session) {
       const crmPatient = await GoogleSheetsService.lookupPatientCRM(phone);
       session = {
@@ -69,12 +69,38 @@ export class FsmStateManager {
       tenant
     );
 
-    // 2. Check for Human Handoff trigger (Immediate transfer on Complaint / Anger / Human Request)
+    // 2. Modify & Cancel Booking Protocol: Handle active booking cancellation or modification
+    const isCancelRequest = nluResult.intent === 'CANCEL_BOOKING' || /إلغاء الحجز|الغاء الحجز|الغي الحجز|أريد ألغي/i.test(messageText);
+    const isModifyRequest = nluResult.intent === 'MODIFY_BOOKING' || /تعديل الحجز|أغير الموعد|تغيير الموعد/i.test(messageText);
+
+    if (isCancelRequest || isModifyRequest) {
+      const activeBooking = await GoogleSheetsService.findActiveBookingByPhone(phone);
+      if (activeBooking) {
+        if (isCancelRequest) {
+          const success = await GoogleSheetsService.cancelBookingInSheet(activeBooking.bookingCode);
+          if (success) {
+            this.sessions.delete(phone);
+            return `تم إلغاء حجزك السابق (${activeBooking.bookingCode}) بنجاح عيني. إذا حبيت تحجز موعد جديد بأي وقت، إحنا بانتظارك برحابة صدر! 🌸`;
+          } else {
+            return `عيني حاولنا نلغي الحجز لكود ${activeBooking.bookingCode} وبس صار خلل بالشبكة، راح نحولك لـ السكرتير للتأكيد المباشر.`;
+          }
+        } else if (isModifyRequest) {
+          await GoogleSheetsService.cancelBookingInSheet(activeBooking.bookingCode);
+          session.currentState = 'GREETING';
+          return `تم إلغاء حجزك السابق (${activeBooking.bookingCode}) لتعديل الموعد. تفضل اختار القسم والفرع المناسب إلك لتثبيت موعدك الجديد! ✨`;
+        }
+      } else {
+        return `عيني ما لقينا حجز نشط مسجل بهاد الرقم. إذا تحب تثبت حجز جديد، كليلي شنو القسم أو الخدمة المحتاجها وتدلل!`;
+      }
+    }
+
+    // 3. Check for Human Handoff trigger (Immediate transfer on Complaint / Anger / Human Request)
     if (
       nluResult.intent === 'REQUEST_HUMAN' ||
       nluResult.intent === 'ANGRY_EXPRESSION' ||
       HandoffManager.shouldTriggerHandoff(session, nluResult.intent, nluResult.confidence)
     ) {
+      // Log complaint to Sheets upon handoff (Throttled CRM write point)
       await GoogleSheetsService.logComplaint({
         timestamp: new Date().toISOString(),
         patientName: session.patientName || 'مراجع كريم',
@@ -82,10 +108,19 @@ export class FsmStateManager {
         complaintContent: messageText,
         status: 'PENDING'
       });
+      if (session.patientName) {
+        await GoogleSheetsService.savePatientCRM({
+          phoneNumber: phone,
+          patientName: session.patientName,
+          platform: 'WhatsApp',
+          totalBookings: 1,
+          lastVisitDate: new Date().toISOString().split('T')[0]
+        });
+      }
       return HandoffManager.executeHandoff(session, tenant);
     }
 
-    // 3. Freeze & Resume Protocol (General FAQ Inquiries only)
+    // 4. Freeze & Resume Protocol (General FAQ Inquiries only)
     if (nluResult.intent === 'ASK_FAQ') {
       const faqAnswer = await GeminiService.answerFaq(messageText, tenant);
       const sliced = ContextSlicer.slice(session, tenant, messageText);
@@ -97,7 +132,7 @@ export class FsmStateManager {
     const requestsFullBranches = /اعرض (كل|جميع) (الفروع|فروع)/i.test(messageText);
     const requestsFullServices = /اعرض (كل|جميع) (الخدمات|خدمات)/i.test(messageText);
 
-    // 4. FSM State Transition Engine
+    // 5. FSM State Transition Engine
     let responseText = '';
 
     switch (session.currentState) {
@@ -208,11 +243,13 @@ export class FsmStateManager {
           session.currentState = 'SELECT_DATE_TIME';
         }
 
-        // Generate available slots & lock temporary slot from Doctor's specific Calendar
+        // Tomorrow-First Slot Engine: Generate slots starting from TOMORROW with 1.2x Human Buffer Multiplier
         if (session.selectedDoctorId) {
           const doctor = tenant.doctors.find(d => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName)!;
-          const todayDate = new Date().toISOString().split('T')[0];
-          const slots = SlotGenerator.generateAvailableSlots(doctor, todayDate, []);
+          const service = tenant.services.find(s => s.id === session.selectedServiceId || s.name === session.selectedServiceName);
+          const tomorrowDate = SlotGenerator.getTomorrowDate();
+          
+          const slots = SlotGenerator.generateAvailableSlots(doctor, tomorrowDate, [], service?.durationMinutes || 30);
           
           if (slots.length > 0) {
             session.selectedSlot = slots[0];
@@ -267,15 +304,15 @@ export class FsmStateManager {
             serviceId: service.id,
             serviceName: service.name,
             department: session.selectedDepartment || 'عام',
-            date: session.selectedSlot?.date || new Date().toISOString().split('T')[0],
+            date: session.selectedSlot?.date || SlotGenerator.getTomorrowDate(),
             startTime: session.selectedSlot?.startTime || '16:00',
-            endTime: session.selectedSlot?.endTime || '16:30',
-            durationMinutes: service.durationMinutes || 30,
+            endTime: session.selectedSlot?.endTime || '16:36',
+            durationMinutes: Math.ceil((service.durationMinutes || 30) * 1.2),
             status: 'CONFIRMED',
             createdAt: new Date().toISOString()
           };
 
-          // Save to Google Sheets DB (Bookings + Patients_CRM) & Sync to Google Calendar
+          // Throttled CRM Write & Booking Persistence: Save ONLY when final digital receipt is being issued!
           await GoogleSheetsService.saveBooking(booking);
           await GoogleSheetsService.savePatientCRM({
             phoneNumber: phone,
@@ -297,7 +334,7 @@ export class FsmStateManager {
         break;
     }
 
-    // 5. Generate Iraqi Persona Response via Context Slicer
+    // 6. Generate Iraqi Persona Response via Context Slicer
     const sliced = ContextSlicer.slice(session, tenant, messageText);
     responseText = await GeminiService.generateIraqiResponse(sliced, tenant);
 
