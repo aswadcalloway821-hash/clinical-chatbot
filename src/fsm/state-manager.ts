@@ -160,13 +160,46 @@ export class FsmStateManager {
 
       switch (session.currentState) {
         case 'GREETING':
-          if (nluResult.entities.departmentName) {
-            session.selectedDepartment = nluResult.entities.departmentName;
+          if (nluResult.entities.branchName || tenant.branches.some(b => messageText.includes(b.name))) {
+            const matchBranch = tenant.branches.find(b => b.name.includes(nluResult.entities.branchName!) || messageText.includes(b.name));
+            if (matchBranch) {
+              session.selectedBranchId = matchBranch.id;
+              session.selectedBranchName = matchBranch.name;
+            }
           }
-          if (tenant.departments && tenant.departments.length > 0) {
-            session.currentState = 'SELECT_DEPARTMENT';
+
+          if (nluResult.entities.departmentName || tenant.departments.some(d => messageText.includes(d))) {
+            const matchDept = tenant.departments.find(d => d.includes(nluResult.entities.departmentName!) || messageText.includes(d));
+            if (matchDept) {
+              session.selectedDepartment = matchDept;
+            }
+          }
+
+          // If patient selected both or selected department with single branch, advance to SELECT_SERVICE immediately!
+          if (session.selectedDepartment) {
+            const deptDoctors = tenant.doctors.filter(d => 
+              d.specialty.includes(session.selectedDepartment!) || 
+              session.selectedDepartment!.includes(d.specialty) ||
+              tenant.services.some(s => s.department === session.selectedDepartment && s.doctorName === d.name)
+            );
+            const matchingBranches = tenant.branches.filter(b => 
+              deptDoctors.some(d => d.branchName === b.name || d.branchId === b.id)
+            );
+            const validBranches = matchingBranches.length > 0 ? matchingBranches : tenant.branches;
+
+            if (validBranches.length === 1 || session.selectedBranchId) {
+              if (!session.selectedBranchId) {
+                session.selectedBranchId = validBranches[0].id;
+                session.selectedBranchName = validBranches[0].name;
+              }
+              session.currentState = 'SELECT_SERVICE';
+            } else {
+              session.currentState = 'SELECT_BRANCH';
+            }
+          } else if (session.selectedBranchId) {
+            session.currentState = 'SELECT_SERVICE';
           } else {
-            session.currentState = 'SELECT_BRANCH';
+            session.currentState = 'SELECT_DEPARTMENT';
           }
           session.failedNluAttempts = 0;
           break;

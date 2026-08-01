@@ -39,10 +39,10 @@ export class ContextSlicer {
 
     switch (session.currentState) {
       case 'GREETING':
-        stepInstruction = 'رحبي بالمراجع بلطف بلهجة عراقية واسأليه عن القسم الطبي أو الخدمة المطلوبة.';
+        stepInstruction = 'رحبي بالمراجع بلطف بلهجة عراقية واعرضي الفروع المتاحة والأقسام الطبية معاً بترقيم عددي واسأليه أي فرع أو قسم يفضل الحجز فيه.';
         stepData = {
-          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. قسم ${d}`).join('\n'),
-          branchesList: tenant.branches.map((b, i) => `${i + 1}. ${b.name}`).join('\n')
+          branchesList: tenant.branches.map((b, i) => `${i + 1}. ${b.name} (${b.address})`).join('\n'),
+          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. قسم ${d}`).join('\n')
         };
         break;
 

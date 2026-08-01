@@ -190,10 +190,10 @@ var ContextSlicer = class {
     let stepData = {};
     switch (session.currentState) {
       case "GREETING":
-        stepInstruction = "\u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0644\u0637\u0641 \u0628\u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0648\u0627\u0633\u0623\u0644\u064A\u0647 \u0639\u0646 \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0637\u0628\u064A \u0623\u0648 \u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629.";
+        stepInstruction = "\u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0644\u0637\u0641 \u0628\u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0648\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0648\u0627\u0644\u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0637\u0628\u064A\u0629 \u0645\u0639\u0627\u064B \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0648\u0627\u0633\u0623\u0644\u064A\u0647 \u0623\u064A \u0641\u0631\u0639 \u0623\u0648 \u0642\u0633\u0645 \u064A\u0641\u0636\u0644 \u0627\u0644\u062D\u062C\u0632 \u0641\u064A\u0647.";
         stepData = {
-          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. \u0642\u0633\u0645 ${d}`).join("\n"),
-          branchesList: tenant.branches.map((b, i) => `${i + 1}. ${b.name}`).join("\n")
+          branchesList: tenant.branches.map((b, i) => `${i + 1}. ${b.name} (${b.address})`).join("\n"),
+          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. \u0642\u0633\u0645 ${d}`).join("\n")
         };
         break;
       case "SELECT_DEPARTMENT":
@@ -1181,13 +1181,40 @@ ${resumePrompt}`;
       let responseText = "";
       switch (session.currentState) {
         case "GREETING":
-          if (nluResult.entities.departmentName) {
-            session.selectedDepartment = nluResult.entities.departmentName;
+          if (nluResult.entities.branchName || tenant.branches.some((b) => messageText.includes(b.name))) {
+            const matchBranch = tenant.branches.find((b) => b.name.includes(nluResult.entities.branchName) || messageText.includes(b.name));
+            if (matchBranch) {
+              session.selectedBranchId = matchBranch.id;
+              session.selectedBranchName = matchBranch.name;
+            }
           }
-          if (tenant.departments && tenant.departments.length > 0) {
-            session.currentState = "SELECT_DEPARTMENT";
+          if (nluResult.entities.departmentName || tenant.departments.some((d) => messageText.includes(d))) {
+            const matchDept = tenant.departments.find((d) => d.includes(nluResult.entities.departmentName) || messageText.includes(d));
+            if (matchDept) {
+              session.selectedDepartment = matchDept;
+            }
+          }
+          if (session.selectedDepartment) {
+            const deptDoctors2 = tenant.doctors.filter(
+              (d) => d.specialty.includes(session.selectedDepartment) || session.selectedDepartment.includes(d.specialty) || tenant.services.some((s) => s.department === session.selectedDepartment && s.doctorName === d.name)
+            );
+            const matchingBranches2 = tenant.branches.filter(
+              (b) => deptDoctors2.some((d) => d.branchName === b.name || d.branchId === b.id)
+            );
+            const validBranches2 = matchingBranches2.length > 0 ? matchingBranches2 : tenant.branches;
+            if (validBranches2.length === 1 || session.selectedBranchId) {
+              if (!session.selectedBranchId) {
+                session.selectedBranchId = validBranches2[0].id;
+                session.selectedBranchName = validBranches2[0].name;
+              }
+              session.currentState = "SELECT_SERVICE";
+            } else {
+              session.currentState = "SELECT_BRANCH";
+            }
+          } else if (session.selectedBranchId) {
+            session.currentState = "SELECT_SERVICE";
           } else {
-            session.currentState = "SELECT_BRANCH";
+            session.currentState = "SELECT_DEPARTMENT";
           }
           session.failedNluAttempts = 0;
           break;
