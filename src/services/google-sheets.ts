@@ -165,6 +165,7 @@ export class GoogleSheetsService {
     const phoneIdx = metaHeaders.indexOf('phone');
     const workingHoursIdx = metaHeaders.indexOf('workinghours');
     const locationLinkIdx = metaHeaders.indexOf('locationlink');
+    const allDeptIdx = metaHeaders.findIndex(h => h.includes('alldepartm') || h.includes('alldepartment'));
 
     const dataRows = metaRows.slice(1);
     
@@ -172,6 +173,42 @@ export class GoogleSheetsService {
       throw new Error(`[Google Sheets Error] Column 'ClinicName' is missing or empty in 'Clinic_Metadata'.`);
     }
     const clinicName = dataRows[0][clinicNameIdx].trim();
+
+    // Extract AllDepartments from Clinic_Metadata
+    let metaDepartments: string[] = [];
+    if (allDeptIdx !== -1) {
+      dataRows.forEach(r => {
+        const val = r[allDeptIdx];
+        if (val) {
+          val.split(/[,،]/).forEach((d: string) => {
+            const trimmed = d.trim();
+            if (trimmed && !metaDepartments.includes(trimmed)) {
+              metaDepartments.push(trimmed);
+            }
+          });
+        }
+      });
+    }
+
+    // Helper to parse working hours range (e.g., "04:00 PM - 10:00 PM" or "09:00 AM - 05:00 PM")
+    const parseWorkingHoursRange = (hoursStr: string): { startHour: number; endHour: number } => {
+      if (!hoursStr) return { startHour: 9, endHour: 20 };
+      const matches = hoursStr.match(/(\d{1,2}):?(\d{2})?\s*(AM|PM)?\s*-\s*(\d{1,2}):?(\d{2})?\s*(AM|PM)?/i);
+      if (matches) {
+        let start = parseInt(matches[1]);
+        const startAmPm = matches[3]?.toUpperCase();
+        if (startAmPm === 'PM' && start < 12) start += 12;
+        if (startAmPm === 'AM' && start === 12) start = 0;
+
+        let end = parseInt(matches[4]);
+        const endAmPm = matches[6]?.toUpperCase();
+        if (endAmPm === 'PM' && end < 12) end += 12;
+        if (endAmPm === 'AM' && end === 12) end = 0;
+
+        return { startHour: start, endHour: end };
+      }
+      return { startHour: 9, endHour: 20 };
+    };
 
     // Parse Branches dynamically
     const branches: Branch[] = dataRows.map((r, idx) => {
@@ -211,6 +248,7 @@ export class GoogleSheetsService {
       const calId = (docCalIdx !== -1 && d[docCalIdx]) ? d[docCalIdx].trim() : 'primary';
 
       const matchingBranch = branches.find(b => b.name.trim() === docBranchName) || branches[0];
+      const parsedHours = parseWorkingHoursRange(matchingBranch.workingHours);
 
       return {
         id: `d_${idx + 1}`,
@@ -226,8 +264,8 @@ export class GoogleSheetsService {
         workingDays: [0, 1, 2, 3, 4, 6],
         workingHours: {
           days: [0, 1, 2, 3, 4, 6],
-          startHour: 9,
-          endHour: 20,
+          startHour: parsedHours.startHour,
+          endHour: parsedHours.endHour,
           slotDurationMinutes: 30
         }
       };
@@ -248,7 +286,7 @@ export class GoogleSheetsService {
     const services: Service[] = servDataRows.map((s, idx) => {
       const sName = (servNameIdx !== -1 && s[servNameIdx]) ? s[servNameIdx].trim() : '';
       if (!sName) throw new Error(`[Google Sheets Error] Missing service name at row ${idx + 2} in 'Services_Config'.`);
-      const sDept = (servDeptIdx !== -1 && s[servDeptIdx]) ? s[servDeptIdx].trim() : 'عام';
+      const sDept = (servDeptIdx !== -1 && s[servDeptIdx]) ? s[servDeptIdx].trim() : '';
       const rawPrice = (servPriceIdx !== -1 && s[servPriceIdx]) ? s[servPriceIdx].trim().replace(/[^0-9]/g, '') : '0';
       const sPrice = parseInt(rawPrice) || 0;
       const sDuration = (servDurationIdx !== -1 && s[servDurationIdx]) ? parseInt(s[servDurationIdx]) || 30 : 30;
@@ -266,8 +304,9 @@ export class GoogleSheetsService {
       };
     });
 
-    // Extract unique departments
-    const departments = Array.from(new Set(services.map(s => s.department || 'عام'))).filter(Boolean);
+    // Extract unique departments combining metaDepartments and services departments
+    const rawDepts = [...metaDepartments, ...services.map(s => s.department)];
+    const departments = Array.from(new Set(rawDepts.filter(Boolean))).filter(d => d !== 'عام' || rawDepts.length === 1);
 
     const tenantConfig: TenantConfig = {
       tenantId,
@@ -527,6 +566,27 @@ export class GoogleSheetsService {
         }
       }
       return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Log Analytics row in Google Sheets Analytics tab
+   */
+  public static async logAnalytics(event: string, details: string): Promise<boolean> {
+    try {
+      const token = await this.getAccessToken();
+      if (!token) return false;
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Analytics!A1:append?valueInputOption=USER_ENTERED`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          values: [[new Date().toISOString(), event, details]]
+        })
+      });
+      return res.ok;
     } catch {
       return false;
     }

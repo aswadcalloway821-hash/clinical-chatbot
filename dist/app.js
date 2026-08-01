@@ -165,37 +165,41 @@ var ContextSlicer = class {
   /**
    * Slice current state context to minimize token footprint (70% - 85% reduction)
    */
-  static slice(session, tenant, userMessage) {
+  static slice(session, tenant, userMessage, phone = "") {
     const isFirstGreeting = session.currentState === "GREETING";
     const personaGuidance = `
 \u0623\u0646\u062A\u0650 "\u0633\u0627\u0631\u0629 \u0627\u0644\u0631\u0642\u0645\u064A\u0629"\u060C \u0645\u0648\u0638\u0641\u0629 \u0627\u0633\u062A\u0642\u0628\u0627\u0644 \u0645\u0631\u0643\u0632 "${tenant.clinicName}".
 \u062A\u062A\u062D\u062F\u062B\u064A\u0646 \u0628\u0644\u063A\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0639\u0641\u0648\u064A\u0629 \u0648\u0637\u0628\u064A\u0639\u064A\u0629 \u0648\u0645\u0628\u0627\u0634\u0631\u0629 \u0645\u062B\u0644 \u0623\u064A \u0645\u0648\u0638\u0641\u0629 \u0627\u0633\u062A\u0642\u0628\u0627\u0644 \u0628\u0634\u0631\u064A\u0629 \u0645\u062D\u062A\u0631\u0641\u0629 \u0639\u0644\u0649 \u0627\u0644\u0648\u0627\u062A\u0633\u0627\u0628.
+
+\u0627\u0644\u064A\u0648\u0645 \u0647\u0648 \u0627\u0644\u0633\u0628\u062A 1 \u0622\u0628/\u0623\u063A\u0633\u0637\u0633 2026. 
 
 \u0642\u0648\u0627\u0639\u062F \u0627\u0644\u0627\u0633\u062A\u062C\u0627\u0628\u0629 \u0648\u0627\u0644\u062A\u0646\u0633\u064A\u0642 \u0627\u0644\u0628\u0635\u0631\u064A:
 1. \u0627\u0633\u0645 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0648\u0627\u0644\u0645\u0631\u0643\u0632 \u0647\u0648 \u062D\u0635\u0631\u0627\u064B "${tenant.clinicName}".
 2. \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0627\u0644\u0645\u0648\u0627\u0642\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0647\u064A \u062D\u0635\u0631\u0627\u064B: ${tenant.branches.map((b) => b.name).join(" \u060C ")}.
 3. \u0627\u0644\u0623\u0637\u0628\u0627\u0621 \u0627\u0644\u0645\u062A\u0627\u062D\u0648\u0646 \u0647\u0645 \u062D\u0635\u0631\u0627\u064B: ${tenant.doctors.map((d) => d.name).join(" \u060C ")}.
 4. ${isFirstGreeting ? "\u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0645\u0631\u0629 \u0648\u0627\u062D\u062F\u0629 \u0641\u0642\u0637 \u0641\u064A \u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u062A\u0641\u0627\u0639\u0644." : "\u0623\u062C\u064A\u0628\u064A \u0628\u0634\u0643\u0644 \u0645\u0628\u0627\u0634\u0631 \u0648\u0645\u062E\u062A\u0635\u0631 \u062C\u062F\u0627\u064B \u0628\u062F\u0648\u0646 \u0623\u064A \u062A\u0631\u062D\u064A\u0628 \u0623\u0648 \u0645\u0642\u062F\u0645\u0627\u062A!"}
-5. \u0645\u0645\u0646\u0648\u0639 \u0645\u0646\u0639\u0627\u064B \u0628\u0627\u062A\u0627\u064B \u0625\u0636\u0627\u0641\u0629 \u0623\u064A \u062C\u0645\u0644\u0629 \u062E\u062A\u0627\u0645\u064A\u0629 \u0645\u0643\u0631\u0631\u0629 \u0641\u064A \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0631\u062F \u0625\u0637\u0644\u0627\u0642\u0627\u064B.
-6. \u0627\u062C\u0639\u0644\u064A \u0643\u0644 \u062E\u064A\u0627\u0631 \u0623\u0648 \u0646\u0642\u0637\u0629 \u0623\u0648 \u0631\u0642\u0645 \u0641\u064A \u0633\u0637\u0631 \u062C\u062F\u064A\u062F \u0645\u0646\u0641\u0635\u0644 \u062A\u0645\u0627\u0645\u0627\u064B (
-)\u060C \u0648\u0627\u062A\u0631\u0643\u064A \u0645\u0633\u0627\u0641\u0629 \u0633\u0637\u0631 \u0645\u0631\u064A\u062D\u0629 \u0644\u0644\u0639\u064A\u0646 \u0628\u064A\u0646 \u0627\u0644\u0639\u0646\u0627\u0648\u064A\u0646 \u0648\u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A \u0639\u0644\u0649 \u0627\u0644\u0648\u0627\u062A\u0633\u0627\u0628.
-7. \u0639\u062F\u0645 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0644\u0631\u0645\u0648\u0632 \u0623\u0648 \u0627\u0644\u062A\u0646\u0633\u064A\u0642\u0627\u062A \u063A\u064A\u0631 \u0627\u0644\u0628\u0634\u0631\u064A\u0629 \u0645\u062B\u0644 (*, **, #, \`\`\`).
+5. \u0645\u0645\u0646\u0648\u0639 \u0645\u0646\u0639\u0627\u064B \u0628\u0627\u062A\u0627\u064B \u0625\u0636\u0627\u0641\u0629 \u0623\u064A \u062C\u0645\u0644\u0629 \u062E\u062A\u0627\u0645\u064A\u0629 \u0645\u0643\u0631\u0631\u0629 \u0623\u0648 \u0645\u062C\u0627\u0645\u0644\u0627\u062A \u0632\u0627\u0626\u062F\u0629 \u0645\u062B\u0644 ("\u0627\u062E\u062A\u064A\u0627\u0631 \u0645\u0645\u062A\u0627\u0632", "\u0628\u0627\u0644\u0646\u0633\u0628\u0629 \u0644\u0644\u062E\u062F\u0645\u0627\u062A \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0644\u062F\u064A\u0646\u0627").
+6. \u0646\u0633\u0642\u064A \u0643\u0627\u0641\u0629 \u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0628\u0633\u064A\u0637 \u0648\u0645\u0631\u064A\u062D \u0644\u0644\u0639\u064A\u0646 (1. ... 
+2. ... 
+3. ...) \u0645\u0639 \u0641\u0635\u0644 \u0643\u0644 \u0646\u0642\u0637\u0629 \u0628\u0633\u0637\u0631 \u0645\u0646\u0641\u0635\u0644.
+7. \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u062A\u0630\u0643\u0631 \u0628\u0635\u064A\u063A\u0629 \u062A\u0627\u0631\u064A\u062E \u0648\u0627\u0636\u062D \u0648\u062F\u0642\u064A\u0642 (\u0645\u062B\u0644\u0627\u064B: \u063A\u062F\u0627\u064B \u0627\u0644\u0623\u062D\u062F 2 \u0622\u0628) \u0648\u062F\u0648\u0646 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0639\u0628\u0627\u0631\u0627\u062A \u0645\u0636\u0644\u0644\u0629 \u0645\u062B\u0644 "\u0627\u0644\u0634\u0647\u0631 \u0627\u0644\u0642\u0627\u062F\u0645".
+8. \u0625\u0630\u0627 \u0642\u0627\u0644 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 "\u0634\u0643\u0631\u0627\u064B" \u0623\u0648 "\u0645\u0627 \u0623\u0631\u064A\u062F \u0634\u064A" \u0623\u0648 \u0648\u062F\u0639\u0643\u060C \u0623\u062C\u064A\u0628\u064A \u0628\u0644\u0637\u0641: "\u0623\u0647\u0644\u0627\u064B \u0648\u0633\u0647\u0644\u0627\u064B \u0628\u064A\u0643 \u0639\u064A\u0646\u064A! \u0625\u0630\u0627 \u063A\u064A\u0631\u062A \u0631\u0623\u064A\u0643 \u0623\u0648 \u0627\u062D\u062A\u0627\u062C\u064A\u062A \u0623\u064A \u062D\u062C\u0632 \u0628\u0640 \u0623\u064A \u0648\u0642\u062A\u060C \u0625\u062D\u0646\u0627 \u0628\u0640 \u0627\u0644\u062E\u062F\u0645\u0629 \u0648\u0645\u0648\u062C\u0648\u062F\u064A\u0646 \u062F\u0627\u0626\u0645\u0627\u064B. \u064A\u0648\u0645\u0643 \u0633\u0639\u064A\u062F! \u{1F338}".
+9. \u0639\u062F\u0645 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0644\u0631\u0645\u0648\u0632 \u0623\u0648 \u0627\u0644\u062A\u0646\u0633\u064A\u0642\u0627\u062A \u063A\u064A\u0631 \u0627\u0644\u0628\u0634\u0631\u064A\u0629 \u0645\u062B\u0644 (*, **, #, \`\`\`).
 `;
     let stepInstruction = "";
     let stepData = {};
     switch (session.currentState) {
       case "GREETING":
-        stepInstruction = "\u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0644\u0637\u0641 \u0628\u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0648\u0627\u0633\u0623\u0644\u064A\u0647 \u0639\u0646 \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0637\u0628\u064A \u0623\u0648 \u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0645\u0637\u0644\u0648\u0628.";
+        stepInstruction = "\u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0644\u0637\u0641 \u0628\u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0648\u0627\u0633\u0623\u0644\u064A\u0647 \u0639\u0646 \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0637\u0628\u064A \u0623\u0648 \u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629.";
         stepData = {
-          departments: tenant.departments || [],
-          branches: tenant.branches.map((b) => ({ id: b.id, name: b.name })),
-          services: tenant.services.map((s) => ({ id: s.id, name: s.name }))
+          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. \u0642\u0633\u0645 ${d}`).join("\n"),
+          branchesList: tenant.branches.map((b, i) => `${i + 1}. ${b.name}`).join("\n")
         };
         break;
       case "SELECT_DEPARTMENT":
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0637\u0628\u064A\u0629 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0648\u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0639\u0646 \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0630\u064A \u064A\u0641\u0636\u0644 \u0627\u0644\u062D\u062C\u0632 \u0641\u064A\u0647.";
+        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0637\u0628\u064A\u0629 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0648\u0627\u0635\u062D\u064A \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0627\u062E\u062A\u064A\u0627\u0631 \u0642\u0633\u0645.";
         stepData = {
-          availableDepartments: tenant.departments || []
+          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. \u0642\u0633\u0645 ${d}`).join("\n")
         };
         break;
       case "SELECT_BRANCH":
@@ -204,61 +208,69 @@ var ContextSlicer = class {
           const deptDoctors = tenant.doctors.filter((d) => deptServices2.some((s) => s.doctorName === d.name || !s.doctorName));
           return deptDoctors.some((d) => d.branchName === b.name || d.branchId === b.id);
         }) : tenant.branches;
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0648\u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0639\u0646 \u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0645\u0646\u0627\u0633\u0628 \u0644\u0647.";
+        const targetBranches = filteredBranches.length > 0 ? filteredBranches : tenant.branches;
+        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0648\u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0623\u0646\u0633\u0628.";
         stepData = {
-          availableBranches: (filteredBranches.length > 0 ? filteredBranches : tenant.branches).map((b) => ({ id: b.id, name: b.name, address: b.address }))
+          branchesList: targetBranches.map((b, i) => `${i + 1}. ${b.name} (${b.address})`).join("\n")
         };
         break;
       case "SELECT_SERVICE":
         const deptServices = session.selectedDepartment ? tenant.services.filter((s) => s.department === session.selectedDepartment) : tenant.services;
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0643\u0634\u0641\u064A\u0629 \u0627\u0644\u0639\u0627\u0645\u0629 \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u064A\u0629 \u0623\u0648 \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u062E\u062F\u0645\u0627\u062A \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0648\u0627\u0633\u0623\u0644\u064A\u0647 \u0623\u064A\u0647\u0645\u0627 \u064A\u0641\u0636\u0644.";
+        const availServices = deptServices.length > 0 ? deptServices : tenant.services;
+        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u062E\u062F\u0645\u0627\u062A \u0628\u0623\u0633\u0645\u0627\u0621 \u0648\u0623\u0633\u0639\u0627\u0631 \u0641\u0642\u0637 \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A. \u0648\u0646\u0631\u062C\u062D \u0644\u0644\u0645\u0631\u0627\u062C\u0639 \u0643\u0634\u0641\u064A\u0629 \u0648\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0639\u0627\u0645\u0629 \u062F\u0627\u0626\u0645\u0627\u064B \u0644\u0644\u062A\u0634\u062E\u064A\u0635 \u0627\u0644\u062F\u0642\u064A\u0642.";
         stepData = {
-          services: (deptServices.length > 0 ? deptServices : tenant.services).map((s) => ({ id: s.id, name: s.name, price: `${s.price} \u062F\u064A\u0646\u0627\u0631` }))
+          servicesList: availServices.map((s, i) => `${i + 1}. ${s.name} - ${s.price} \u062F\u064A\u0646\u0627\u0631`).join("\n"),
+          recommendation: "\u0646\u0646\u0635\u062D \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0643\u0634\u0641\u064A\u0629 \u0648\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0639\u0627\u0645\u0629 \u0643\u062E\u064A\u0627\u0631 \u0623\u0648\u0644 \u0644\u062A\u062D\u062F\u064A\u062F \u0627\u0644\u0627\u062D\u062A\u064A\u0627\u062C \u0627\u0644\u062F\u0642\u064A\u0642"
         };
         break;
       case "SELECT_DOCTOR":
         const selectedBranchDoctors = tenant.doctors.filter(
           (d) => !session.selectedBranchId || d.branchId === session.selectedBranchId || d.branchName === session.selectedBranchName
         );
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u0623\u0637\u0628\u0627\u0621 \u0648\u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0639\u0646 \u0627\u0644\u0637\u0628\u064A\u0628 \u0627\u0644\u0641\u0627\u0636\u0644 \u0627\u0644\u0630\u064A \u064A\u0648\u062F \u0627\u0644\u062D\u062C\u0632 \u0639\u0646\u062F\u0647.";
+        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0623\u0637\u0628\u0627\u0621 \u0627\u0644\u0645\u062A\u0627\u062D\u064A\u0646 \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0639\u0646\u062F \u0637\u0644\u0628 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0641\u0642\u0637.";
         stepData = {
-          availableDoctors: selectedBranchDoctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty }))
+          doctorsList: selectedBranchDoctors.map((d, i) => `${i + 1}. \u062F\u0643\u062A\u0648\u0631/\u062F\u0643\u062A\u0648\u0631\u0629 ${d.name} (${d.specialty})`).join("\n")
         };
         break;
       case "SELECT_DATE_TIME":
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0627\u0644\u0642\u0627\u062F\u0645\u0629 \u0648\u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0639\u0646 \u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0623\u0646\u0633\u0628 \u0644\u0647.";
+        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0636\u0645\u0646 \u062F\u0648\u0627\u0645 \u0627\u0644\u0637\u0628\u064A\u0628 \u0641\u0642\u0637 \u0648\u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u062A\u062D\u062F\u064A\u062F.";
         stepData = {
           selectedDoctor: tenant.doctors.find((d) => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName)?.name,
-          availableSlots: session.selectedSlot ? [session.selectedSlot] : "\u064A\u062A\u0645 \u062A\u0648\u0644\u064A\u062F \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u062D\u0633\u0628 \u062A\u0642\u0648\u064A\u0645 \u0627\u0644\u0637\u0628\u064A\u0628"
+          availableSlots: session.selectedSlot ? [`\u063A\u062F\u0627\u064B ${session.selectedSlot.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${session.selectedSlot.startTime}`] : "\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u062F\u0648\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A"
         };
         break;
       case "COLLECT_PATIENT_NAME":
-        stepInstruction = "\u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u062A\u0632\u0648\u064A\u062F\u0643 \u0628\u0627\u0633\u0645\u0647 \u0627\u0644\u062B\u0644\u0627\u062B\u064A \u0627\u0644\u0645\u062D\u062A\u0631\u0645 \u0644\u062A\u062B\u0628\u064A\u062A \u0627\u0644\u0645\u0648\u0639\u062F.";
+        stepInstruction = "\u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u062A\u0632\u0648\u064A\u062F\u0643 \u0628\u0627\u0633\u0645\u0647 \u0627\u0644\u0645\u062D\u062A\u0631\u0645 \u0644\u062A\u062B\u0628\u064A\u062A \u0627\u0644\u0645\u0648\u0639\u062F.";
         stepData = {};
         break;
       case "CONFIRMATION_PENDING":
         const branch = session.selectedBranchName || tenant.branches.find((b) => b.id === session.selectedBranchId)?.name || "";
         const doctor = session.selectedDoctorName || tenant.doctors.find((d) => d.id === session.selectedDoctorId)?.name || "";
         const service = session.selectedServiceName || tenant.services.find((s) => s.id === session.selectedServiceId)?.name || "";
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0645\u0644\u062E\u0635 \u0627\u0644\u062D\u062C\u0632 \u0628\u0648\u0636\u0648\u062D \u0628\u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0648\u0627\u0633\u0623\u0644\u064A\u0647 \u0647\u0644 \u064A\u0624\u0643\u062F \u0627\u0644\u062D\u062C\u0632\u061F";
+        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0645\u0644\u062E\u0635 \u0627\u0644\u062D\u062C\u0632 \u0648\u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0646\u0647\u0627\u0626\u064A.";
         stepData = {
           patientName: session.patientName,
           branch,
           doctor,
           service,
           date: session.selectedSlot?.date,
-          time: `${session.selectedSlot?.startTime} - ${session.selectedSlot?.endTime}`
+          time: session.selectedSlot?.startTime
         };
         break;
       case "CONFIRMED":
         const confBranch = tenant.branches.find((b) => b.id === session.selectedBranchId || b.name === session.selectedBranchName) || tenant.branches[0];
         const confService = tenant.services.find((s) => s.id === session.selectedServiceId || s.name === session.selectedServiceName) || tenant.services[0];
-        stepInstruction = `\u0623\u0635\u062F\u0631\u064A \u0627\u0644\u0648\u0635\u0644 \u0627\u0644\u0631\u0642\u0645\u064A \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0627\u0644\u0623\u0646\u064A\u0642 \u0644\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0646\u0641\u0633 \u0627\u0644\u062A\u0646\u0633\u064A\u0642 \u0627\u0644\u062A\u0627\u0645 \u0627\u0644\u062A\u0627\u0644\u064A \u0628\u062F\u0648\u0646 \u0632\u064A\u0627\u062F\u0629 \u0623\u0648 \u0646\u0642\u0635\u0627\u0646:
+        const confDoctor = tenant.doctors.find((d) => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName) || tenant.doctors[0];
+        stepInstruction = `\u0623\u0635\u062F\u0631\u064A \u0627\u0644\u0648\u0635\u0644 \u0627\u0644\u0631\u0642\u0645\u064A \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0627\u0644\u0623\u0646\u064A\u0642 \u0627\u0644\u0645\u0643\u062A\u0645\u0644 \u0628\u0646\u0641\u0633 \u0627\u0644\u062A\u0646\u0633\u064A\u0642 \u0627\u0644\u062A\u0627\u0645 \u0627\u0644\u062A\u0627\u0644\u064A \u062F\u0648\u0646 \u0623\u064A \u0627\u062E\u062A\u0635\u0627\u0631:
 \u062A\u0645 \u062A\u062B\u0628\u064A\u062A \u062D\u062C\u0632\u0643 \u0628\u0646\u062C\u0627\u062D \u0648\u0628\u0634\u0643\u0644 \u0646\u0647\u0627\u0626\u064A \u0639\u064A\u0646\u064A! \u2705
 
 \u{1F4CB} \u062A\u0641\u0627\u0635\u064A\u0644 \u0645\u0648\u0639\u062F\u0643:
+- \u0627\u0644\u0627\u0633\u0645: ${session.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645"}
+- \u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641: ${phone || "\u0627\u0644\u0645\u0633\u062C\u0644 \u0641\u064A \u0627\u0644\u0648\u0627\u062A\u0633\u0627\u0628"}
+- \u0627\u0644\u0641\u0631\u0639: ${confBranch.name}
+- \u0627\u0644\u0637\u0628\u064A\u0628: ${confDoctor.name}
 - \u0627\u0644\u062E\u062F\u0645\u0629: ${confService.name}
-- \u0627\u0644\u0645\u0648\u0639\u062F: ${session.selectedSlot?.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${session.selectedSlot?.startTime}
+- \u0627\u0644\u0645\u0648\u0639\u062F: \u063A\u062F\u0627\u064B ${session.selectedSlot?.date || ""} \u0627\u0644\u0633\u0627\u0639\u0629 ${session.selectedSlot?.startTime || ""}
 - \u0643\u0648\u062F \u0627\u0644\u062D\u062C\u0632: ${session.bookingCode}
 
 \u{1F4CD} \u0631\u0627\u0628\u0637 \u062E\u0631\u064A\u0637\u0629 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u062C\u063A\u0631\u0627\u0641\u064A:
@@ -579,11 +591,42 @@ var GoogleSheetsService = class {
     const phoneIdx = metaHeaders.indexOf("phone");
     const workingHoursIdx = metaHeaders.indexOf("workinghours");
     const locationLinkIdx = metaHeaders.indexOf("locationlink");
+    const allDeptIdx = metaHeaders.findIndex((h) => h.includes("alldepartm") || h.includes("alldepartment"));
     const dataRows = metaRows.slice(1);
     if (clinicNameIdx === -1 || !dataRows[0]?.[clinicNameIdx]?.trim()) {
       throw new Error(`[Google Sheets Error] Column 'ClinicName' is missing or empty in 'Clinic_Metadata'.`);
     }
     const clinicName = dataRows[0][clinicNameIdx].trim();
+    let metaDepartments = [];
+    if (allDeptIdx !== -1) {
+      dataRows.forEach((r) => {
+        const val = r[allDeptIdx];
+        if (val) {
+          val.split(/[,،]/).forEach((d) => {
+            const trimmed = d.trim();
+            if (trimmed && !metaDepartments.includes(trimmed)) {
+              metaDepartments.push(trimmed);
+            }
+          });
+        }
+      });
+    }
+    const parseWorkingHoursRange = (hoursStr) => {
+      if (!hoursStr) return { startHour: 9, endHour: 20 };
+      const matches = hoursStr.match(/(\d{1,2}):?(\d{2})?\s*(AM|PM)?\s*-\s*(\d{1,2}):?(\d{2})?\s*(AM|PM)?/i);
+      if (matches) {
+        let start = parseInt(matches[1]);
+        const startAmPm = matches[3]?.toUpperCase();
+        if (startAmPm === "PM" && start < 12) start += 12;
+        if (startAmPm === "AM" && start === 12) start = 0;
+        let end = parseInt(matches[4]);
+        const endAmPm = matches[6]?.toUpperCase();
+        if (endAmPm === "PM" && end < 12) end += 12;
+        if (endAmPm === "AM" && end === 12) end = 0;
+        return { startHour: start, endHour: end };
+      }
+      return { startHour: 9, endHour: 20 };
+    };
     const branches = dataRows.map((r, idx) => {
       const bName = branchIdx !== -1 && r[branchIdx] ? r[branchIdx].trim() : "";
       if (!bName) throw new Error(`[Google Sheets Error] Missing branch name at row ${idx + 2} in 'Clinic_Metadata'.`);
@@ -613,6 +656,7 @@ var GoogleSheetsService = class {
       const docSpec = docSpecIdx !== -1 && d[docSpecIdx] ? d[docSpecIdx].trim() : "\u0637\u0628 \u0623\u0633\u0646\u0627\u0646 \u0639\u0627\u0645";
       const calId = docCalIdx !== -1 && d[docCalIdx] ? d[docCalIdx].trim() : "primary";
       const matchingBranch = branches.find((b) => b.name.trim() === docBranchName) || branches[0];
+      const parsedHours = parseWorkingHoursRange(matchingBranch.workingHours);
       return {
         id: `d_${idx + 1}`,
         branchId: matchingBranch.id,
@@ -627,8 +671,8 @@ var GoogleSheetsService = class {
         workingDays: [0, 1, 2, 3, 4, 6],
         workingHours: {
           days: [0, 1, 2, 3, 4, 6],
-          startHour: 9,
-          endHour: 20,
+          startHour: parsedHours.startHour,
+          endHour: parsedHours.endHour,
           slotDurationMinutes: 30
         }
       };
@@ -646,7 +690,7 @@ var GoogleSheetsService = class {
     const services = servDataRows.map((s, idx) => {
       const sName = servNameIdx !== -1 && s[servNameIdx] ? s[servNameIdx].trim() : "";
       if (!sName) throw new Error(`[Google Sheets Error] Missing service name at row ${idx + 2} in 'Services_Config'.`);
-      const sDept = servDeptIdx !== -1 && s[servDeptIdx] ? s[servDeptIdx].trim() : "\u0639\u0627\u0645";
+      const sDept = servDeptIdx !== -1 && s[servDeptIdx] ? s[servDeptIdx].trim() : "";
       const rawPrice = servPriceIdx !== -1 && s[servPriceIdx] ? s[servPriceIdx].trim().replace(/[^0-9]/g, "") : "0";
       const sPrice = parseInt(rawPrice) || 0;
       const sDuration = servDurationIdx !== -1 && s[servDurationIdx] ? parseInt(s[servDurationIdx]) || 30 : 30;
@@ -662,7 +706,8 @@ var GoogleSheetsService = class {
         postCareAdvice: servPostIdx !== -1 && s[servPostIdx] ? s[servPostIdx].trim() : ""
       };
     });
-    const departments = Array.from(new Set(services.map((s) => s.department || "\u0639\u0627\u0645"))).filter(Boolean);
+    const rawDepts = [...metaDepartments, ...services.map((s) => s.department)];
+    const departments = Array.from(new Set(rawDepts.filter(Boolean))).filter((d) => d !== "\u0639\u0627\u0645" || rawDepts.length === 1);
     const tenantConfig = {
       tenantId,
       clinicName,
@@ -893,6 +938,26 @@ var GoogleSheetsService = class {
         }
       }
       return false;
+    } catch {
+      return false;
+    }
+  }
+  /**
+   * Log Analytics row in Google Sheets Analytics tab
+   */
+  static async logAnalytics(event, details) {
+    try {
+      const token = await this.getAccessToken();
+      if (!token) return false;
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Analytics!A1:append?valueInputOption=USER_ENTERED`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          values: [[(/* @__PURE__ */ new Date()).toISOString(), event, details]]
+        })
+      });
+      return res.ok;
     } catch {
       return false;
     }
@@ -1211,6 +1276,31 @@ ${resumePrompt}`;
           }
           break;
         case "SELECT_DATE_TIME":
+          if (messageText.includes("\u0634\u0643\u0631\u0627") || messageText.includes("\u0634\u0643\u0631\u0627\u064B") || messageText.includes("\u0645\u0627 \u0627\u0631\u064A\u062F") || messageText.includes("\u0645\u0627 \u0623\u0631\u064A\u062F") || messageText.includes("\u0628\u0627\u064A") || messageText.includes("\u0644\u0627 \u062A\u0633\u0648\u064A") || messageText.includes("\u062A\u0635\u0628\u062D \u0639\u0644\u0649 \u062E\u064A\u0631")) {
+            session.currentState = "GREETING";
+            return "\u0623\u0647\u0644\u0627\u064B \u0648\u0633\u0647\u0644\u0627\u064B \u0628\u064A\u0643 \u0639\u064A\u0646\u064A! \u0625\u0630\u0627 \u063A\u064A\u0631\u062A \u0631\u0623\u064A\u0643 \u0623\u0648 \u0627\u062D\u062A\u0627\u062C\u064A\u062A \u0623\u064A \u062D\u062C\u0632 \u0628\u0640 \u0623\u064A \u0648\u0642\u062A\u060C \u0625\u062D\u0646\u0627 \u0628\u0640 \u0627\u0644\u062E\u062F\u0645\u0629 \u0648\u0645\u0648\u062C\u0648\u062F\u064A\u0646 \u062F\u0627\u0626\u0645\u0627\u064B. \u064A\u0648\u0645\u0643 \u0633\u0639\u064A\u062F! \u{1F338}";
+          }
+          const doctorForHours = tenant.doctors.find((d) => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName) || tenant.doctors[0];
+          const timeMatch = messageText.match(/(\d{1,2})\s*(بالليل|مساءً|عصراً|صباحاً|PM|AM)?/i);
+          if (timeMatch) {
+            let reqHour = parseInt(timeMatch[1]);
+            const period = timeMatch[2]?.toLowerCase() || "";
+            if ((period.includes("\u0644\u064A\u0644") || period.includes("\u0645\u0633\u0627\u0621") || period.includes("\u0639\u0635\u0631") || period.includes("pm")) && reqHour < 12) {
+              reqHour += 12;
+            }
+            if ((period.includes("\u0635\u0628\u0627\u062D") || period.includes("am")) && reqHour === 12) {
+              reqHour = 0;
+            }
+            const { startHour, endHour } = doctorForHours.workingHours;
+            if (reqHour < startHour || reqHour >= endHour) {
+              const service = tenant.services.find((s) => s.id === session.selectedServiceId || s.name === session.selectedServiceName);
+              const validSlots = SlotGenerator.generateAvailableSlots(doctorForHours, SlotGenerator.getTomorrowDate(), [], service?.durationMinutes || 30);
+              const slotTimes = validSlots.slice(0, 3).map((s) => s.startTime).join(" \u060C ");
+              return `\u0639\u064A\u0646\u064A \u062F\u0643\u062A\u0648\u0631/\u062F\u0643\u062A\u0648\u0631\u0629 ${doctorForHours.name} \u0645\u062A\u0648\u0641\u0631 \u0641\u064A ${doctorForHours.branchName} \u0645\u0646 \u0627\u0644\u0633\u0627\u0639\u0629 ${startHour > 12 ? startHour - 12 : startHour} \u0635\u0628\u0627\u062D\u0627\u064B \u0644\u063A\u0627\u064A\u0629 ${endHour > 12 ? endHour - 12 : endHour} \u0639\u0635\u0631\u0627\u064B \u0641\u0642\u0637. 
+
+\u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 \u0644\u063A\u062F\u064D \u0647\u064A: (${slotTimes || "\u0645\u0646 9 \u0635\u0628\u0627\u062D\u0627\u064B"}). \u0623\u064A\u0647\u0645 \u062A\u0641\u0636\u0644 \u062D\u062D\u062C\u0632\u0647 \u0644\u0643\u061F`;
+            }
+          }
           if (nluResult.intent === "SELECT_SLOT" || nluResult.intent === "CONFIRM" || session.selectedSlot) {
             if (session.patientName) {
               session.currentState = "CONFIRMATION_PENDING";
@@ -1267,9 +1357,11 @@ ${resumePrompt}`;
               totalBookings: 1,
               lastVisitDate: booking.date
             });
+            await GoogleSheetsService.logAnalytics("BOOKING_CONFIRMED", `Booking: ${booking.bookingCode}, Patient: ${booking.patientName}, Doctor: ${booking.doctorName}`);
           } else if (nluResult.intent === "CANCEL") {
             if (session.selectedSlot) SlotGenerator.unlockSlot(session.selectedSlot);
             session.currentState = "GREETING";
+            await GoogleSheetsService.logAnalytics("BOOKING_CANCELLED", `Phone: ${phone}`);
             return "\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u0637\u0644\u0628 \u0627\u0644\u062D\u062C\u0632 \u0628\u0646\u062C\u0627\u062D \u0639\u064A\u0646\u064A. \u0634\u0648\u0643\u062A \u0645\u0627 \u062A\u062D\u0628 \u062A\u062D\u062C\u0632 \u0627\u062D\u0646\u0627 \u0628\u0627\u0646\u062A\u0638\u0627\u0631\u0643 \u0628\u0631\u062D\u0627\u0628\u0629 \u0635\u062F\u0631.";
           }
           break;
@@ -1353,7 +1445,7 @@ router.post("/webhook", (req, res) => {
   }
 });
 function enqueueMessageForProcessing(fromPhone, messageText) {
-  const DEBOUNCE_TIME_MS = 2500;
+  const DEBOUNCE_TIME_MS = 5e3;
   const existingBuffer = userBuffers.get(fromPhone);
   if (existingBuffer) {
     clearTimeout(existingBuffer.timer);

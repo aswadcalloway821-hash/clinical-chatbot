@@ -282,6 +282,39 @@ export class FsmStateManager {
           break;
 
         case 'SELECT_DATE_TIME':
+          // Check for polite exit / farewell
+          if (messageText.includes('شكرا') || messageText.includes('شكراً') || messageText.includes('ما اريد') || messageText.includes('ما أريد') || messageText.includes('باي') || messageText.includes('لا تسوي') || messageText.includes('تصبح على خير')) {
+            session.currentState = 'GREETING';
+            return 'أهلاً وسهلاً بيك عيني! إذا غيرت رأيك أو احتاجيت أي حجز بـ أي وقت، إحنا بـ الخدمة وموجودين دائماً. يومك سعيد! 🌸';
+          }
+
+          // Working Hours Gate: Strict validation of requested time against doctor working hours
+          const doctorForHours = tenant.doctors.find(d => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName) || tenant.doctors[0];
+          const timeMatch = messageText.match(/(\d{1,2})\s*(بالليل|مساءً|عصراً|صباحاً|PM|AM)?/i);
+
+          if (timeMatch) {
+            let reqHour = parseInt(timeMatch[1]);
+            const period = timeMatch[2]?.toLowerCase() || '';
+
+            if ((period.includes('ليل') || period.includes('مساء') || period.includes('عصر') || period.includes('pm')) && reqHour < 12) {
+              reqHour += 12;
+            }
+            if ((period.includes('صباح') || period.includes('am')) && reqHour === 12) {
+              reqHour = 0;
+            }
+
+            const { startHour, endHour } = doctorForHours.workingHours;
+            if (reqHour < startHour || reqHour >= endHour) {
+              const service = tenant.services.find(s => s.id === session.selectedServiceId || s.name === session.selectedServiceName);
+              const validSlots = SlotGenerator.generateAvailableSlots(doctorForHours, SlotGenerator.getTomorrowDate(), [], service?.durationMinutes || 30);
+              const slotTimes = validSlots.slice(0, 3).map(s => s.startTime).join(' ، ');
+
+              return `عيني دكتور/دكتورة ${doctorForHours.name} متوفر في ${doctorForHours.branchName} من الساعة ${startHour > 12 ? startHour - 12 : startHour} صباحاً لغاية ${endHour > 12 ? endHour - 12 : endHour} عصراً فقط. 
+
+المواعيد المتاحة الرسمية لغدٍ هي: (${slotTimes || 'من 9 صباحاً'}). أيهم تفضل ححجزه لك؟`;
+            }
+          }
+
           if (nluResult.intent === 'SELECT_SLOT' || nluResult.intent === 'CONFIRM' || session.selectedSlot) {
             // Zero-Reask CRM Protocol: Returning Patient Bypass!
             if (session.patientName) {
@@ -335,7 +368,7 @@ export class FsmStateManager {
               createdAt: new Date().toISOString()
             };
 
-            // Calendar-First Fix: Lock in Google Calendar FIRST, then record in Google Sheets DB & Patients_CRM!
+            // Calendar-First Fix: Lock in Google Calendar FIRST, then record in Google Sheets DB, Patients_CRM & Analytics!
             await GoogleCalendarService.syncAppointment(booking, doctor);
             await GoogleSheetsService.saveBooking(booking);
             await GoogleSheetsService.savePatientCRM({
@@ -345,9 +378,11 @@ export class FsmStateManager {
               totalBookings: 1,
               lastVisitDate: booking.date
             });
+            await GoogleSheetsService.logAnalytics('BOOKING_CONFIRMED', `Booking: ${booking.bookingCode}, Patient: ${booking.patientName}, Doctor: ${booking.doctorName}`);
           } else if (nluResult.intent === 'CANCEL') {
             if (session.selectedSlot) SlotGenerator.unlockSlot(session.selectedSlot);
             session.currentState = 'GREETING';
+            await GoogleSheetsService.logAnalytics('BOOKING_CANCELLED', `Phone: ${phone}`);
             return 'تم إلغاء طلب الحجز بنجاح عيني. شوكت ما تحب تحجز احنا بانتظارك برحابة صدر.';
           }
           break;
