@@ -5,6 +5,7 @@ import whatsappRoutes from './routes/whatsapp.js';
 import { WatchdogService } from './services/watchdog.js';
 import { FsmStateManager } from './fsm/state-manager.js';
 import { GoogleSheetsService } from './services/google-sheets.js';
+import { ReminderJob } from './services/reminder-job.js';
 
 dotenv.config();
 
@@ -22,7 +23,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'UP', service: 'Sara Digital Clinic WhatsApp Engine', timestamp: new Date() });
 });
 
-// Initialize Watchdog & Revenue Recovery
+// Initialize Watchdog, Reminders & Revenue Recovery
 (async () => {
   try {
     const tenant = await GoogleSheetsService.getTenantConfig();
@@ -43,6 +44,10 @@ app.get('/health', (req, res) => {
 
     WatchdogService.startMonitoring(FsmStateManager.getSessionsStore(), tenant);
     console.log('[Watchdog Service] Started session monitor worker with Live WhatsApp Dispatcher.');
+
+    // Initialize 4-Hour Pre-Appointment Scheduled Reminders
+    ReminderJob.startScheduler();
+    console.log('[Reminder Service] Started 4-hour pre-appointment background scheduler worker.');
   } catch (err) {
     console.error('🚨 [Startup Error Loading Tenant Config]:', err);
   }

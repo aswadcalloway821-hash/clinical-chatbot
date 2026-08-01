@@ -870,6 +870,33 @@ var GoogleSheetsService = class {
       return false;
     }
   }
+  /**
+   * Update Reminder Status in Google Sheets Bookings tab (Column K)
+   */
+  static async updateReminderStatus(bookingCode, status = "SENT") {
+    try {
+      const token = await this.getAccessToken();
+      if (!token) return false;
+      const rows = await this.fetchSheetValues("Bookings!A1:Z500");
+      if (!rows || rows.length < 2) return false;
+      for (let i = 1; i < rows.length; i++) {
+        const code = rows[i][0] || "";
+        if (code === bookingCode) {
+          const rowIndex = i + 1;
+          const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Bookings!K${rowIndex}?valueInputOption=USER_ENTERED`;
+          const res = await fetch(url, {
+            method: "PUT",
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ values: [[status]] })
+          });
+          return res.ok;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
 };
 
 // src/services/google-calendar.ts
@@ -1456,6 +1483,71 @@ var WatchdogService = class {
   }
 };
 
+// src/services/reminder-job.ts
+var ReminderJob = class {
+  static isRunning = false;
+  /**
+   * Main execution check for sending 4-hour pre-appointment reminders
+   */
+  static async checkAndSendReminders() {
+    if (this.isRunning) return;
+    this.isRunning = true;
+    try {
+      const tenant = await GoogleSheetsService.getTenantConfig();
+      const rows = await GoogleSheetsService.fetchSheetValues("Bookings!A1:Z500");
+      if (!rows || rows.length < 2) {
+        this.isRunning = false;
+        return;
+      }
+      const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      const now = /* @__PURE__ */ new Date();
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        const bookingCode = r[0] || "";
+        const patientName = r[1] || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645";
+        const phone = r[2] || "";
+        const branchName = r[3] || tenant.branches[0]?.name || "";
+        const dateTimeStr = r[5] || "";
+        const status = (r[7] || "").toUpperCase();
+        const reminderStatus = (r[10] || "").toUpperCase();
+        if (status === "CONFIRMED" && reminderStatus !== "SENT" && dateTimeStr.includes(todayStr)) {
+          const timePart = dateTimeStr.split(" ")[1] || "16:00";
+          const [hours, minutes] = timePart.split(":").map(Number);
+          const appointmentDate = /* @__PURE__ */ new Date();
+          appointmentDate.setHours(hours || 16, minutes || 0, 0, 0);
+          const diffMs = appointmentDate.getTime() - now.getTime();
+          const diffHours = diffMs / (1e3 * 60 * 60);
+          if (diffHours >= 3.5 && diffHours <= 4.5) {
+            const reminderMessage = `\u064A\u0627 \u0647\u0644\u0627 \u0628\u064A\u0643 \u0639\u064A\u0646\u064A \u0623\u0633\u062A\u0627\u0630/\u0623\u0633\u062A\u0627\u0630\u0629 ${patientName}! \u{1F338}
+
+\u0646\u062D\u0628 \u0646\u0630\u0643\u0631\u0643 \u0628\u0645\u0648\u0639\u062F\u0643 \u0627\u0644\u0644\u0637\u064A\u0641 \u0627\u0644\u064A\u0648\u0645 \u0627\u0644\u0633\u0627\u0639\u0629 ${timePart} \u0628\u0640 ${tenant.clinicName} (${branchName}). \u0643\u0627\u062F\u0631\u0646\u0627 \u0628\u0627\u0646\u062A\u0638\u0627\u0631\u0643 \u0648\u064A\u0646\u062A\u0638\u0631 \u0632\u064A\u0627\u0631\u062A\u0643 \u0628\u0643\u0644 \u0631\u062D\u0627\u0628\u0629 \u0635\u062F\u0631.
+
+\u0625\u0630\u0627 \u0637\u0631\u0623 \u0639\u0646\u062F\u0643 \u0623\u064A \u0638\u0631\u0641 \u062D\u0627\u0628 \u062A\u0639\u062F\u0644 \u0648\u0642\u062A \u0627\u0644\u0645\u0648\u0639\u062F \u0623\u0648 \u062A\u0623\u062C\u0644\u0647\u060C \u062A\u062F\u0644\u0644 \u0648\u0645\u0627\u0643\u0648 \u0623\u064A \u0625\u0634\u0643\u0627\u0644 \u0625\u0637\u0644\u0627\u0642\u0627\u064B\u060C \u0641\u0642\u0637 \u0623\u0631\u0633\u0644 \u0644\u064A \u0643\u0644\u0645\u0629 (\u062A\u0639\u062F\u064A\u0644) \u0623\u0648 (\u0625\u0644\u063A\u0627\u0621) \u0648\u0623\u0646\u0627 \u0628\u062E\u062F\u0645\u062A\u0643 \u0628\u0644\u064A \u062A\u062D\u062A\u0627\u062C\u0647.
+
+\u0646\u0646\u062A\u0638\u0631\u0643 \u062A\u0646\u0648\u0631\u0646\u0627 \u0627\u0644\u064A\u0648\u0645! \u2728`;
+            console.log(`[Scheduled Reminder Job] Sending 4-hour pre-appointment reminder to ${patientName} (${phone}) for booking ${bookingCode}`);
+            await GoogleSheetsService.updateReminderStatus(bookingCode, "SENT");
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[Scheduled Reminder Job Warning]:", err);
+    } finally {
+      this.isRunning = false;
+    }
+  }
+  /**
+   * Start the background scheduler running every 15 minutes
+   */
+  static startScheduler(intervalMs = 15 * 60 * 1e3) {
+    console.log(`[Scheduled Reminder Job] Initializing background reminder scheduler (every ${intervalMs / 6e4} minutes)...`);
+    this.checkAndSendReminders();
+    setInterval(() => {
+      this.checkAndSendReminders();
+    }, intervalMs);
+  }
+};
+
 // src/app.ts
 dotenv3.config();
 var app = express();
@@ -1483,6 +1575,8 @@ app.get("/health", (req, res) => {
     });
     WatchdogService.startMonitoring(FsmStateManager.getSessionsStore(), tenant);
     console.log("[Watchdog Service] Started session monitor worker with Live WhatsApp Dispatcher.");
+    ReminderJob.startScheduler();
+    console.log("[Reminder Service] Started 4-hour pre-appointment background scheduler worker.");
   } catch (err) {
     console.error("\u{1F6A8} [Startup Error Loading Tenant Config]:", err);
   }

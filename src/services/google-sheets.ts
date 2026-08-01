@@ -501,4 +501,34 @@ export class GoogleSheetsService {
       return false;
     }
   }
+
+  /**
+   * Update Reminder Status in Google Sheets Bookings tab (Column K)
+   */
+  public static async updateReminderStatus(bookingCode: string, status: string = 'SENT'): Promise<boolean> {
+    try {
+      const token = await this.getAccessToken();
+      if (!token) return false;
+
+      const rows = await this.fetchSheetValues('Bookings!A1:Z500');
+      if (!rows || rows.length < 2) return false;
+
+      for (let i = 1; i < rows.length; i++) {
+        const code = rows[i][0] || '';
+        if (code === bookingCode) {
+          const rowIndex = i + 1;
+          const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Bookings!K${rowIndex}?valueInputOption=USER_ENTERED`;
+          const res = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ values: [[status]] })
+          });
+          return res.ok;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
 }
