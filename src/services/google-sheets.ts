@@ -457,6 +457,35 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Log technical system errors / stack traces into Analytics_Logs tab (separating tech errors from patient complaints)
+   */
+  public static async logSystemError(errorMsg: string, phone: string = '', patientName: string = ''): Promise<boolean> {
+    try {
+      const token = await this.getAccessToken();
+      if (!token) return false;
+
+      const values = [[
+        new Date().toISOString(),
+        phone || 'N/A',
+        patientName || 'مراجع كريم',
+        errorMsg.replace(/^=/, "'="),
+        'SYSTEM_ERROR'
+      ]];
+
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Analytics_Logs!A:E:append?valueInputOption=USER_ENTERED`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values })
+      });
+      return res.ok;
+    } catch (err) {
+      console.error('[Google Sheets System Error Log Failed]:', err);
+      return false;
+    }
+  }
+
+  /**
    * Append a new booking to Google Sheets 'Bookings' tab
    */
   public static async saveBooking(booking: Booking): Promise<void> {

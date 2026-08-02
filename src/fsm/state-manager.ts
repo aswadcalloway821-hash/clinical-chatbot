@@ -434,6 +434,16 @@ ${branchDeptStrings.join('\n')}
             const doctor = tenant.doctors.find(d => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName) || tenant.doctors[0];
             const service = tenant.services.find(s => s.id === session.selectedServiceId || s.name === session.selectedServiceName) || tenant.services[0];
 
+            const defaultStartH = doctor.workingHours?.startHour || 9;
+            const defaultStartTime = session.selectedSlot?.startTime || `${defaultStartH.toString().padStart(2, '0')}:00`;
+            const effectiveDuration = Math.ceil((service.durationMinutes || 30) * 1.2);
+            
+            const [startH, startMin] = defaultStartTime.split(':').map(Number);
+            const totalEndMin = (startH * 60 + (startMin || 0)) + effectiveDuration;
+            const computedEndH = Math.floor(totalEndMin / 60).toString().padStart(2, '0');
+            const computedEndM = (totalEndMin % 60).toString().padStart(2, '0');
+            const defaultEndTime = session.selectedSlot?.endTime || `${computedEndH}:${computedEndM}`;
+
             const booking: Booking = {
               bookingCode: session.bookingCode,
               tenantId: tenant.tenantId,
@@ -448,9 +458,9 @@ ${branchDeptStrings.join('\n')}
               serviceName: service.name,
               department: session.selectedDepartment || 'عام',
               date: session.selectedSlot?.date || SlotGenerator.getTomorrowDate(),
-              startTime: session.selectedSlot?.startTime || '16:00',
-              endTime: session.selectedSlot?.endTime || '16:36',
-              durationMinutes: Math.ceil((service.durationMinutes || 30) * 1.2),
+              startTime: defaultStartTime,
+              endTime: defaultEndTime,
+              durationMinutes: effectiveDuration,
               status: 'CONFIRMED',
               createdAt: new Date().toISOString()
             };
@@ -487,15 +497,13 @@ ${branchDeptStrings.join('\n')}
     } catch (error: any) {
       console.error('[System Exception Caught]:', error);
 
-      // Automated Error Logging to Complaints Tab
+      // Automated System Error Logging to System_Logs (separated from patient Complaints)
       try {
-        await GoogleSheetsService.logComplaint({
-          timestamp: new Date().toISOString(),
-          patientName: session?.patientName || 'مراجع كريم',
-          phoneNumber: phone,
-          complaintContent: `[خطأ نظام]: ${error.message || String(error)}`,
-          status: 'PENDING'
-        });
+        await GoogleSheetsService.logSystemError(
+          `[خطأ نظام]: ${error.message || String(error)}`,
+          phone,
+          session?.patientName || 'مراجع كريم'
+        );
       } catch (logErr) {
         console.error('[Automated Error Log Failed]:', logErr);
       }

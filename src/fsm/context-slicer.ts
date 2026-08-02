@@ -1,10 +1,32 @@
 import { PatientSession, TenantConfig } from '../types/booking.js';
 
+export interface StepDataPayload {
+  branchDepartmentsList?: string;
+  departmentsList?: string;
+  branchesList?: string;
+  servicesList?: string;
+  recommendation?: string;
+  doctorsList?: string;
+  selectedDoctor?: string;
+  availableSlots?: string | string[];
+  patientName?: string;
+  branch?: string;
+  doctor?: string;
+  service?: string;
+  date?: string;
+  time?: string;
+  bookingCode?: string;
+  serviceName?: string;
+  locationLink?: string;
+  startTime?: string;
+  secretaryPhone?: string;
+}
+
 export interface SlicedContextPayload {
   step: string;
   clinicName: string;
   stepInstruction: string;
-  stepData: any;
+  stepData: StepDataPayload;
   userMessage: string;
   personaGuidance: string;
 }
@@ -26,7 +48,7 @@ export class ContextSlicer {
 1. اسم العيادة والمركز هو حصراً "${tenant.clinicName}".
 2. الفروع والمواقع المتاحة هي حصراً: ${tenant.branches.map(b => b.name).join(' ، ')}.
 3. الأطباء المتاحون هم حصراً: ${tenant.doctors.map(d => d.name).join(' ، ')}.
-4. ${isFirstGreeting ? 'رحبي بالمراجع مرة واحدة فقط في بداية التفاعل.' : 'أجيبي بشكل مباشر ومختصر جداً بدون أي ترحيب أو مقدمات!'}
+4. ${isFirstGreeting ? 'الترحيب الدافئ يُقدم مرّة واحدة فقط في أول رسالة تفاعل (GREETING).' : 'بعد الرسالة الأولى، تكون جميع الاستجابات التالية مباشرة ومختصرة بدون أي تكرار للمقدمات أو المجاملات الختامية.'}
 5. ممنوع منعاً باتاً إضافة أي جملة ختامية مكررة أو مجاملات زائدة مثل ("اختيار ممتاز", "بالنسبة للخدمات المتوفرة لدينا").
 6. نسقي كافة قائمة الخيارات بترقيم عددي بسيط ومريح للعين (1. ... \n2. ... \n3. ...) مع فصل كل نقطة بسطر منفصل.
 7. المواعيد تذكر بصيغة تاريخ واضح ودقيق (مثلاً: غداً الأحد 2 آب) ودون استخدام عبارات مضللة مثل "الشهر القادم".
@@ -35,7 +57,7 @@ export class ContextSlicer {
 `;
 
     let stepInstruction = '';
-    let stepData: any = {};
+    let stepData: StepDataPayload = {};
 
     switch (session.currentState) {
       case 'GREETING':

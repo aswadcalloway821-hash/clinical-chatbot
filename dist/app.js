@@ -178,7 +178,7 @@ var ContextSlicer = class {
 1. \u0627\u0633\u0645 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0648\u0627\u0644\u0645\u0631\u0643\u0632 \u0647\u0648 \u062D\u0635\u0631\u0627\u064B "${tenant.clinicName}".
 2. \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0627\u0644\u0645\u0648\u0627\u0642\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0647\u064A \u062D\u0635\u0631\u0627\u064B: ${tenant.branches.map((b) => b.name).join(" \u060C ")}.
 3. \u0627\u0644\u0623\u0637\u0628\u0627\u0621 \u0627\u0644\u0645\u062A\u0627\u062D\u0648\u0646 \u0647\u0645 \u062D\u0635\u0631\u0627\u064B: ${tenant.doctors.map((d) => d.name).join(" \u060C ")}.
-4. ${isFirstGreeting ? "\u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0645\u0631\u0629 \u0648\u0627\u062D\u062F\u0629 \u0641\u0642\u0637 \u0641\u064A \u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u062A\u0641\u0627\u0639\u0644." : "\u0623\u062C\u064A\u0628\u064A \u0628\u0634\u0643\u0644 \u0645\u0628\u0627\u0634\u0631 \u0648\u0645\u062E\u062A\u0635\u0631 \u062C\u062F\u0627\u064B \u0628\u062F\u0648\u0646 \u0623\u064A \u062A\u0631\u062D\u064A\u0628 \u0623\u0648 \u0645\u0642\u062F\u0645\u0627\u062A!"}
+4. ${isFirstGreeting ? "\u0627\u0644\u062A\u0631\u062D\u064A\u0628 \u0627\u0644\u062F\u0627\u0641\u0626 \u064A\u064F\u0642\u062F\u0645 \u0645\u0631\u0651\u0629 \u0648\u0627\u062D\u062F\u0629 \u0641\u0642\u0637 \u0641\u064A \u0623\u0648\u0644 \u0631\u0633\u0627\u0644\u0629 \u062A\u0641\u0627\u0639\u0644 (GREETING)." : "\u0628\u0639\u062F \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0623\u0648\u0644\u0649\u060C \u062A\u0643\u0648\u0646 \u062C\u0645\u064A\u0639 \u0627\u0644\u0627\u0633\u062A\u062C\u0627\u0628\u0627\u062A \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u0645\u0628\u0627\u0634\u0631\u0629 \u0648\u0645\u062E\u062A\u0635\u0631\u0629 \u0628\u062F\u0648\u0646 \u0623\u064A \u062A\u0643\u0631\u0627\u0631 \u0644\u0644\u0645\u0642\u062F\u0645\u0627\u062A \u0623\u0648 \u0627\u0644\u0645\u062C\u0627\u0645\u0644\u0627\u062A \u0627\u0644\u062E\u062A\u0627\u0645\u064A\u0629."}
 5. \u0645\u0645\u0646\u0648\u0639 \u0645\u0646\u0639\u0627\u064B \u0628\u0627\u062A\u0627\u064B \u0625\u0636\u0627\u0641\u0629 \u0623\u064A \u062C\u0645\u0644\u0629 \u062E\u062A\u0627\u0645\u064A\u0629 \u0645\u0643\u0631\u0631\u0629 \u0623\u0648 \u0645\u062C\u0627\u0645\u0644\u0627\u062A \u0632\u0627\u0626\u062F\u0629 \u0645\u062B\u0644 ("\u0627\u062E\u062A\u064A\u0627\u0631 \u0645\u0645\u062A\u0627\u0632", "\u0628\u0627\u0644\u0646\u0633\u0628\u0629 \u0644\u0644\u062E\u062F\u0645\u0627\u062A \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0644\u062F\u064A\u0646\u0627").
 6. \u0646\u0633\u0642\u064A \u0643\u0627\u0641\u0629 \u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0628\u0633\u064A\u0637 \u0648\u0645\u0631\u064A\u062D \u0644\u0644\u0639\u064A\u0646 (1. ... 
 2. ... 
@@ -861,6 +861,32 @@ var GoogleSheetsService = class {
     }
   }
   /**
+   * Log technical system errors / stack traces into Analytics_Logs tab (separating tech errors from patient complaints)
+   */
+  static async logSystemError(errorMsg, phone = "", patientName = "") {
+    try {
+      const token = await this.getAccessToken();
+      if (!token) return false;
+      const values = [[
+        (/* @__PURE__ */ new Date()).toISOString(),
+        phone || "N/A",
+        patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
+        errorMsg.replace(/^=/, "'="),
+        "SYSTEM_ERROR"
+      ]];
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Analytics_Logs!A:E:append?valueInputOption=USER_ENTERED`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ values })
+      });
+      return res.ok;
+    } catch (err) {
+      console.error("[Google Sheets System Error Log Failed]:", err);
+      return false;
+    }
+  }
+  /**
    * Append a new booking to Google Sheets 'Bookings' tab
    */
   static async saveBooking(booking) {
@@ -1451,6 +1477,14 @@ ${branchDeptStrings.join("\n")}
             const branch = tenant.branches.find((b) => b.id === session.selectedBranchId || b.name === session.selectedBranchName) || tenant.branches[0];
             const doctor = tenant.doctors.find((d) => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName) || tenant.doctors[0];
             const service = tenant.services.find((s) => s.id === session.selectedServiceId || s.name === session.selectedServiceName) || tenant.services[0];
+            const defaultStartH = doctor.workingHours?.startHour || 9;
+            const defaultStartTime = session.selectedSlot?.startTime || `${defaultStartH.toString().padStart(2, "0")}:00`;
+            const effectiveDuration = Math.ceil((service.durationMinutes || 30) * 1.2);
+            const [startH, startMin] = defaultStartTime.split(":").map(Number);
+            const totalEndMin = startH * 60 + (startMin || 0) + effectiveDuration;
+            const computedEndH = Math.floor(totalEndMin / 60).toString().padStart(2, "0");
+            const computedEndM = (totalEndMin % 60).toString().padStart(2, "0");
+            const defaultEndTime = session.selectedSlot?.endTime || `${computedEndH}:${computedEndM}`;
             const booking = {
               bookingCode: session.bookingCode,
               tenantId: tenant.tenantId,
@@ -1465,9 +1499,9 @@ ${branchDeptStrings.join("\n")}
               serviceName: service.name,
               department: session.selectedDepartment || "\u0639\u0627\u0645",
               date: session.selectedSlot?.date || SlotGenerator.getTomorrowDate(),
-              startTime: session.selectedSlot?.startTime || "16:00",
-              endTime: session.selectedSlot?.endTime || "16:36",
-              durationMinutes: Math.ceil((service.durationMinutes || 30) * 1.2),
+              startTime: defaultStartTime,
+              endTime: defaultEndTime,
+              durationMinutes: effectiveDuration,
               status: "CONFIRMED",
               createdAt: (/* @__PURE__ */ new Date()).toISOString()
             };
@@ -1498,13 +1532,11 @@ ${branchDeptStrings.join("\n")}
     } catch (error) {
       console.error("[System Exception Caught]:", error);
       try {
-        await GoogleSheetsService.logComplaint({
-          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-          patientName: session?.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
-          phoneNumber: phone,
-          complaintContent: `[\u062E\u0637\u0623 \u0646\u0638\u0627\u0645]: ${error.message || String(error)}`,
-          status: "PENDING"
-        });
+        await GoogleSheetsService.logSystemError(
+          `[\u062E\u0637\u0623 \u0646\u0638\u0627\u0645]: ${error.message || String(error)}`,
+          phone,
+          session?.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645"
+        );
       } catch (logErr) {
         console.error("[Automated Error Log Failed]:", logErr);
       }
