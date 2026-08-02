@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import whatsappRoutes from './routes/whatsapp.js';
 import { WatchdogService } from './services/watchdog.js';
-import { FsmStateManager } from './fsm/state-manager.js';
+import { DynamicSlotEngine } from './core/dynamic-slot-engine.js';
 import { GoogleSheetsService } from './services/google-sheets.js';
 import { ReminderJob } from './services/reminder-job.js';
 
@@ -42,7 +42,7 @@ app.get('/health', (req, res) => {
       }
     });
 
-    WatchdogService.startMonitoring(FsmStateManager.getSessionsStore(), tenant);
+    WatchdogService.startMonitoring(DynamicSlotEngine.getSessionsStore(), tenant);
     console.log('[Watchdog Service] Started session monitor worker with Live WhatsApp Dispatcher.');
 
     // Initialize 4-Hour Pre-Appointment Scheduled Reminders

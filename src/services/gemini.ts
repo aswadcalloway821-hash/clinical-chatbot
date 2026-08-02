@@ -118,6 +118,112 @@ export class GeminiService {
   }
 
   /**
+   * Helper to get Current Baghdad Date String
+   */
+  public static getBaghdadDateString(): string {
+    return new Date().toLocaleDateString('ar-IQ', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'Asia/Baghdad'
+    });
+  }
+
+  /**
+   * Analyze and extract booking slots in one shot via Gemini NLU
+   */
+  public static async analyzeAndExtractSlots(
+    userMessage: string,
+    currentSlots: any,
+    tenant: TenantConfig
+  ): Promise<{ intent: string; extractedSlots: any; confidence: number }> {
+    const prompt = `
+أنتِ نظام تحليل النوايا واستخراج خانات الحجز الطبي لـ "${tenant.clinicName}".
+تاريخ اليوم بتوقيت بغداد: ${this.getBaghdadDateString()}
+
+بيانات العيادة المتاحة:
+- الفروع: ${JSON.stringify(tenant.branches.map(b => ({ id: b.id, name: b.name })))}
+- الأقسام: ${JSON.stringify(tenant.departments || [])}
+- الخدمات: ${JSON.stringify(tenant.services.map(s => ({ id: s.id, name: s.name, department: s.department })))}
+- الأطباء: ${JSON.stringify(tenant.doctors.map(d => ({ id: d.id, name: d.name, branch: d.branchName, specialty: d.specialty })))}
+
+الخانات المسجلة حالياً: ${JSON.stringify(currentSlots || {})}
+رسالة المريض الأخيرة: "${userMessage}"
+
+المطلوب: استخراج أي معلومات حجز متوفرة في رسالة المريض (فرع، قسم، خدمة، طبيب، تاريخ، وقت، اسم المريض) وتعيين النية.
+إذا كان السؤال استفساراً عاماً عن سعر أو موقع -> intent: "ASK_FAQ".
+إذا كان طلب تحويل للسكرتير -> intent: "REQUEST_HUMAN".
+
+أرجعي النتيجة بصيغة JSON فقط:
+{
+  "intent": "BOOKING_FLOW | ASK_FAQ | REQUEST_HUMAN | CANCEL_BOOKING | MODIFY_BOOKING",
+  "extractedSlots": {
+    "branchName": "اسم الفرع أو undefined",
+    "branchId": "معرف الفرع أو undefined",
+    "department": "اسم القسم أو undefined",
+    "serviceName": "اسم الخدمة أو undefined",
+    "serviceId": "معرف الخدمة أو undefined",
+    "doctorName": "اسم الطبيب أو undefined",
+    "doctorId": "معرف الطبيب أو undefined",
+    "date": "التاريخ بصيغة YYYY-MM-DD أو undefined",
+    "startTime": "الوقت بصيغة HH:mm أو undefined",
+    "patientName": "اسم المريض الصريح الثلاثي أو الثنائي أو undefined"
+  },
+  "confidence": 0.95
+}
+`;
+
+    try {
+      const modelName = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: this.getSystemInstruction(tenant),
+        generationConfig: { responseMimeType: 'application/json' }
+      });
+      const response = await model.generateContent(prompt);
+      const parsed = JSON.parse(response.response.text()?.trim() || '{}');
+      return {
+        intent: parsed.intent || 'BOOKING_FLOW',
+        extractedSlots: parsed.extractedSlots || {},
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.9
+      };
+    } catch (err) {
+      console.error('Gemini Slot Extraction Error:', err);
+      return { intent: 'BOOKING_FLOW', extractedSlots: {}, confidence: 0.5 };
+    }
+  }
+
+  /**
+   * Generate polite closing response for locked sessions (COMPLETED_LOCKED)
+   */
+  public static async generatePoliteClosingResponse(userMessage: string, tenant: TenantConfig): Promise<string> {
+    return `أهلاً وسهلاً بيك عيني! حجزك السابق مسجل ومؤكد عندنا بـ ${tenant.clinicName}. إذا حبيت تسوي حجز جديد أو نعدل الموعد كليلي "حجز جديد" وتدلل! 🌸`;
+  }
+
+  /**
+   * Transcribe Audio Note (Voice Message) via Gemini Audio API
+   */
+  public static async transcribeAudioNote(audioBase64: string, mimeType: string = 'audio/ogg'): Promise<string> {
+    try {
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const result = await model.generateContent([
+        {
+          inlineData: {
+            mimeType,
+            data: audioBase64
+          }
+        },
+        { text: 'المطلوب: تحويل هذه البصمة الصوتية العربية العراقية إلى نص مكتوب بدقة، بدون أي إضافات.' }
+      ]);
+      return result.response.text()?.trim() || '';
+    } catch (err) {
+      console.error('Audio Transcription Error:', err);
+      return '';
+    }
+  }
+
+  /**
    * Generate Authentic Iraqi Dialect response ("سارة الرقمية") using real TenantConfig (Zero Dummy Data!)
    */
   public static async generateIraqiResponse(slicedContext: SlicedContextPayload, tenant: TenantConfig): Promise<string> {

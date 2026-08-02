@@ -104,6 +104,103 @@ var GeminiService = class {
     }
   }
   /**
+   * Helper to get Current Baghdad Date String
+   */
+  static getBaghdadDateString() {
+    return (/* @__PURE__ */ new Date()).toLocaleDateString("ar-IQ", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "Asia/Baghdad"
+    });
+  }
+  /**
+   * Analyze and extract booking slots in one shot via Gemini NLU
+   */
+  static async analyzeAndExtractSlots(userMessage, currentSlots, tenant) {
+    const prompt = `
+\u0623\u0646\u062A\u0650 \u0646\u0638\u0627\u0645 \u062A\u062D\u0644\u064A\u0644 \u0627\u0644\u0646\u0648\u0627\u064A\u0627 \u0648\u0627\u0633\u062A\u062E\u0631\u0627\u062C \u062E\u0627\u0646\u0627\u062A \u0627\u0644\u062D\u062C\u0632 \u0627\u0644\u0637\u0628\u064A \u0644\u0640 "${tenant.clinicName}".
+\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u064A\u0648\u0645 \u0628\u062A\u0648\u0642\u064A\u062A \u0628\u063A\u062F\u0627\u062F: ${this.getBaghdadDateString()}
+
+\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u0645\u062A\u0627\u062D\u0629:
+- \u0627\u0644\u0641\u0631\u0648\u0639: ${JSON.stringify(tenant.branches.map((b) => ({ id: b.id, name: b.name })))}
+- \u0627\u0644\u0623\u0642\u0633\u0627\u0645: ${JSON.stringify(tenant.departments || [])}
+- \u0627\u0644\u062E\u062F\u0645\u0627\u062A: ${JSON.stringify(tenant.services.map((s) => ({ id: s.id, name: s.name, department: s.department })))}
+- \u0627\u0644\u0623\u0637\u0628\u0627\u0621: ${JSON.stringify(tenant.doctors.map((d) => ({ id: d.id, name: d.name, branch: d.branchName, specialty: d.specialty })))}
+
+\u0627\u0644\u062E\u0627\u0646\u0627\u062A \u0627\u0644\u0645\u0633\u062C\u0644\u0629 \u062D\u0627\u0644\u064A\u0627\u064B: ${JSON.stringify(currentSlots || {})}
+\u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0645\u0631\u064A\u0636 \u0627\u0644\u0623\u062E\u064A\u0631\u0629: "${userMessage}"
+
+\u0627\u0644\u0645\u0637\u0644\u0648\u0628: \u0627\u0633\u062A\u062E\u0631\u0627\u062C \u0623\u064A \u0645\u0639\u0644\u0648\u0645\u0627\u062A \u062D\u062C\u0632 \u0645\u062A\u0648\u0641\u0631\u0629 \u0641\u064A \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0645\u0631\u064A\u0636 (\u0641\u0631\u0639\u060C \u0642\u0633\u0645\u060C \u062E\u062F\u0645\u0629\u060C \u0637\u0628\u064A\u0628\u060C \u062A\u0627\u0631\u064A\u062E\u060C \u0648\u0642\u062A\u060C \u0627\u0633\u0645 \u0627\u0644\u0645\u0631\u064A\u0636) \u0648\u062A\u0639\u064A\u064A\u0646 \u0627\u0644\u0646\u064A\u0629.
+\u0625\u0630\u0627 \u0643\u0627\u0646 \u0627\u0644\u0633\u0624\u0627\u0644 \u0627\u0633\u062A\u0641\u0633\u0627\u0631\u0627\u064B \u0639\u0627\u0645\u0627\u064B \u0639\u0646 \u0633\u0639\u0631 \u0623\u0648 \u0645\u0648\u0642\u0639 -> intent: "ASK_FAQ".
+\u0625\u0630\u0627 \u0643\u0627\u0646 \u0637\u0644\u0628 \u062A\u062D\u0648\u064A\u0644 \u0644\u0644\u0633\u0643\u0631\u062A\u064A\u0631 -> intent: "REQUEST_HUMAN".
+
+\u0623\u0631\u062C\u0639\u064A \u0627\u0644\u0646\u062A\u064A\u062C\u0629 \u0628\u0635\u064A\u063A\u0629 JSON \u0641\u0642\u0637:
+{
+  "intent": "BOOKING_FLOW | ASK_FAQ | REQUEST_HUMAN | CANCEL_BOOKING | MODIFY_BOOKING",
+  "extractedSlots": {
+    "branchName": "\u0627\u0633\u0645 \u0627\u0644\u0641\u0631\u0639 \u0623\u0648 undefined",
+    "branchId": "\u0645\u0639\u0631\u0641 \u0627\u0644\u0641\u0631\u0639 \u0623\u0648 undefined",
+    "department": "\u0627\u0633\u0645 \u0627\u0644\u0642\u0633\u0645 \u0623\u0648 undefined",
+    "serviceName": "\u0627\u0633\u0645 \u0627\u0644\u062E\u062F\u0645\u0629 \u0623\u0648 undefined",
+    "serviceId": "\u0645\u0639\u0631\u0641 \u0627\u0644\u062E\u062F\u0645\u0629 \u0623\u0648 undefined",
+    "doctorName": "\u0627\u0633\u0645 \u0627\u0644\u0637\u0628\u064A\u0628 \u0623\u0648 undefined",
+    "doctorId": "\u0645\u0639\u0631\u0641 \u0627\u0644\u0637\u0628\u064A\u0628 \u0623\u0648 undefined",
+    "date": "\u0627\u0644\u062A\u0627\u0631\u064A\u062E \u0628\u0635\u064A\u063A\u0629 YYYY-MM-DD \u0623\u0648 undefined",
+    "startTime": "\u0627\u0644\u0648\u0642\u062A \u0628\u0635\u064A\u063A\u0629 HH:mm \u0623\u0648 undefined",
+    "patientName": "\u0627\u0633\u0645 \u0627\u0644\u0645\u0631\u064A\u0636 \u0627\u0644\u0635\u0631\u064A\u062D \u0627\u0644\u062B\u0644\u0627\u062B\u064A \u0623\u0648 \u0627\u0644\u062B\u0646\u0627\u0626\u064A \u0623\u0648 undefined"
+  },
+  "confidence": 0.95
+}
+`;
+    try {
+      const modelName = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: this.getSystemInstruction(tenant),
+        generationConfig: { responseMimeType: "application/json" }
+      });
+      const response = await model.generateContent(prompt);
+      const parsed = JSON.parse(response.response.text()?.trim() || "{}");
+      return {
+        intent: parsed.intent || "BOOKING_FLOW",
+        extractedSlots: parsed.extractedSlots || {},
+        confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.9
+      };
+    } catch (err) {
+      console.error("Gemini Slot Extraction Error:", err);
+      return { intent: "BOOKING_FLOW", extractedSlots: {}, confidence: 0.5 };
+    }
+  }
+  /**
+   * Generate polite closing response for locked sessions (COMPLETED_LOCKED)
+   */
+  static async generatePoliteClosingResponse(userMessage, tenant) {
+    return `\u0623\u0647\u0644\u0627\u064B \u0648\u0633\u0647\u0644\u0627\u064B \u0628\u064A\u0643 \u0639\u064A\u0646\u064A! \u062D\u062C\u0632\u0643 \u0627\u0644\u0633\u0627\u0628\u0642 \u0645\u0633\u062C\u0644 \u0648\u0645\u0624\u0643\u062F \u0639\u0646\u062F\u0646\u0627 \u0628\u0640 ${tenant.clinicName}. \u0625\u0630\u0627 \u062D\u0628\u064A\u062A \u062A\u0633\u0648\u064A \u062D\u062C\u0632 \u062C\u062F\u064A\u062F \u0623\u0648 \u0646\u0639\u062F\u0644 \u0627\u0644\u0645\u0648\u0639\u062F \u0643\u0644\u064A\u0644\u064A "\u062D\u062C\u0632 \u062C\u062F\u064A\u062F" \u0648\u062A\u062F\u0644\u0644! \u{1F338}`;
+  }
+  /**
+   * Transcribe Audio Note (Voice Message) via Gemini Audio API
+   */
+  static async transcribeAudioNote(audioBase64, mimeType = "audio/ogg") {
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const result = await model.generateContent([
+        {
+          inlineData: {
+            mimeType,
+            data: audioBase64
+          }
+        },
+        { text: "\u0627\u0644\u0645\u0637\u0644\u0648\u0628: \u062A\u062D\u0648\u064A\u0644 \u0647\u0630\u0647 \u0627\u0644\u0628\u0635\u0645\u0629 \u0627\u0644\u0635\u0648\u062A\u064A\u0629 \u0627\u0644\u0639\u0631\u0628\u064A\u0629 \u0627\u0644\u0639\u0631\u0627\u0642\u064A\u0629 \u0625\u0644\u0649 \u0646\u0635 \u0645\u0643\u062A\u0648\u0628 \u0628\u062F\u0642\u0629\u060C \u0628\u062F\u0648\u0646 \u0623\u064A \u0625\u0636\u0627\u0641\u0627\u062A." }
+      ]);
+      return result.response.text()?.trim() || "";
+    } catch (err) {
+      console.error("Audio Transcription Error:", err);
+      return "";
+    }
+  }
+  /**
    * Generate Authentic Iraqi Dialect response ("سارة الرقمية") using real TenantConfig (Zero Dummy Data!)
    */
   static async generateIraqiResponse(slicedContext, tenant) {
@@ -158,179 +255,6 @@ var GeminiService = class {
     } catch (error) {
       return `\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A\u060C \u064A\u0645\u0643\u0646\u0643 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0628\u0627\u0644\u0633\u0643\u0631\u062A\u0627\u0631\u064A\u0629 \u0644\u0645\u0639\u0631\u0641\u0629 \u0643\u0627\u0641\u0629 \u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644: ${tenant.secretaryPhone}.`;
     }
-  }
-};
-
-// src/fsm/context-slicer.ts
-var ContextSlicer = class {
-  /**
-   * Slice current state context to minimize token footprint (70% - 85% reduction)
-   */
-  static slice(session, tenant, userMessage, phone = "") {
-    const isFirstGreeting = session.currentState === "GREETING";
-    const personaGuidance = `
-\u0623\u0646\u062A\u0650 "\u0633\u0627\u0631\u0629 \u0627\u0644\u0631\u0642\u0645\u064A\u0629"\u060C \u0645\u0648\u0638\u0641\u0629 \u0627\u0633\u062A\u0642\u0628\u0627\u0644 \u0645\u0631\u0643\u0632 "${tenant.clinicName}".
-\u062A\u062A\u062D\u062F\u062B\u064A\u0646 \u0628\u0644\u063A\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0639\u0641\u0648\u064A\u0629 \u0648\u0637\u0628\u064A\u0639\u064A\u0629 \u0648\u0645\u0628\u0627\u0634\u0631\u0629 \u0645\u062B\u0644 \u0623\u064A \u0645\u0648\u0638\u0641\u0629 \u0627\u0633\u062A\u0642\u0628\u0627\u0644 \u0628\u0634\u0631\u064A\u0629 \u0645\u062D\u062A\u0631\u0641\u0629 \u0639\u0644\u0649 \u0627\u0644\u0648\u0627\u062A\u0633\u0627\u0628.
-
-\u0627\u0644\u064A\u0648\u0645 \u0647\u0648 \u0627\u0644\u0633\u0628\u062A 1 \u0622\u0628/\u0623\u063A\u0633\u0637\u0633 2026. 
-
-\u0642\u0648\u0627\u0639\u062F \u0627\u0644\u0627\u0633\u062A\u062C\u0627\u0628\u0629 \u0648\u0627\u0644\u062A\u0646\u0633\u064A\u0642 \u0627\u0644\u0628\u0635\u0631\u064A:
-1. \u0627\u0633\u0645 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0648\u0627\u0644\u0645\u0631\u0643\u0632 \u0647\u0648 \u062D\u0635\u0631\u0627\u064B "${tenant.clinicName}".
-2. \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0627\u0644\u0645\u0648\u0627\u0642\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0647\u064A \u062D\u0635\u0631\u0627\u064B: ${tenant.branches.map((b) => b.name).join(" \u060C ")}.
-3. \u0627\u0644\u0623\u0637\u0628\u0627\u0621 \u0627\u0644\u0645\u062A\u0627\u062D\u0648\u0646 \u0647\u0645 \u062D\u0635\u0631\u0627\u064B: ${tenant.doctors.map((d) => d.name).join(" \u060C ")}.
-4. ${isFirstGreeting ? "\u0627\u0644\u062A\u0631\u062D\u064A\u0628 \u0627\u0644\u062F\u0627\u0641\u0626 \u064A\u064F\u0642\u062F\u0645 \u0645\u0631\u0651\u0629 \u0648\u0627\u062D\u062F\u0629 \u0641\u0642\u0637 \u0641\u064A \u0623\u0648\u0644 \u0631\u0633\u0627\u0644\u0629 \u062A\u0641\u0627\u0639\u0644 (GREETING)." : "\u0628\u0639\u062F \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0623\u0648\u0644\u0649\u060C \u062A\u0643\u0648\u0646 \u062C\u0645\u064A\u0639 \u0627\u0644\u0627\u0633\u062A\u062C\u0627\u0628\u0627\u062A \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u0645\u0628\u0627\u0634\u0631\u0629 \u0648\u0645\u062E\u062A\u0635\u0631\u0629 \u0628\u062F\u0648\u0646 \u0623\u064A \u062A\u0643\u0631\u0627\u0631 \u0644\u0644\u0645\u0642\u062F\u0645\u0627\u062A \u0623\u0648 \u0627\u0644\u0645\u062C\u0627\u0645\u0644\u0627\u062A \u0627\u0644\u062E\u062A\u0627\u0645\u064A\u0629."}
-5. \u0645\u0645\u0646\u0648\u0639 \u0645\u0646\u0639\u0627\u064B \u0628\u0627\u062A\u0627\u064B \u0625\u0636\u0627\u0641\u0629 \u0623\u064A \u062C\u0645\u0644\u0629 \u062E\u062A\u0627\u0645\u064A\u0629 \u0645\u0643\u0631\u0631\u0629 \u0623\u0648 \u0645\u062C\u0627\u0645\u0644\u0627\u062A \u0632\u0627\u0626\u062F\u0629 \u0645\u062B\u0644 ("\u0627\u062E\u062A\u064A\u0627\u0631 \u0645\u0645\u062A\u0627\u0632", "\u0628\u0627\u0644\u0646\u0633\u0628\u0629 \u0644\u0644\u062E\u062F\u0645\u0627\u062A \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0644\u062F\u064A\u0646\u0627").
-6. \u0646\u0633\u0642\u064A \u0643\u0627\u0641\u0629 \u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0628\u0633\u064A\u0637 \u0648\u0645\u0631\u064A\u062D \u0644\u0644\u0639\u064A\u0646 (1. ... 
-2. ... 
-3. ...) \u0645\u0639 \u0641\u0635\u0644 \u0643\u0644 \u0646\u0642\u0637\u0629 \u0628\u0633\u0637\u0631 \u0645\u0646\u0641\u0635\u0644.
-7. \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u062A\u0630\u0643\u0631 \u0628\u0635\u064A\u063A\u0629 \u062A\u0627\u0631\u064A\u062E \u0648\u0627\u0636\u062D \u0648\u062F\u0642\u064A\u0642 (\u0645\u062B\u0644\u0627\u064B: \u063A\u062F\u0627\u064B \u0627\u0644\u0623\u062D\u062F 2 \u0622\u0628) \u0648\u062F\u0648\u0646 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0639\u0628\u0627\u0631\u0627\u062A \u0645\u0636\u0644\u0644\u0629 \u0645\u062B\u0644 "\u0627\u0644\u0634\u0647\u0631 \u0627\u0644\u0642\u0627\u062F\u0645".
-8. \u0625\u0630\u0627 \u0642\u0627\u0644 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 "\u0634\u0643\u0631\u0627\u064B" \u0623\u0648 "\u0645\u0627 \u0623\u0631\u064A\u062F \u0634\u064A" \u0623\u0648 \u0648\u062F\u0639\u0643\u060C \u0623\u062C\u064A\u0628\u064A \u0628\u0644\u0637\u0641: "\u0623\u0647\u0644\u0627\u064B \u0648\u0633\u0647\u0644\u0627\u064B \u0628\u064A\u0643 \u0639\u064A\u0646\u064A! \u0625\u0630\u0627 \u063A\u064A\u0631\u062A \u0631\u0623\u064A\u0643 \u0623\u0648 \u0627\u062D\u062A\u0627\u062C\u064A\u062A \u0623\u064A \u062D\u062C\u0632 \u0628\u0640 \u0623\u064A \u0648\u0642\u062A\u060C \u0625\u062D\u0646\u0627 \u0628\u0640 \u0627\u0644\u062E\u062F\u0645\u0629 \u0648\u0645\u0648\u062C\u0648\u062F\u064A\u0646 \u062F\u0627\u0626\u0645\u0627\u064B. \u064A\u0648\u0645\u0643 \u0633\u0639\u064A\u062F! \u{1F338}".
-9. \u0639\u062F\u0645 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0644\u0631\u0645\u0648\u0632 \u0623\u0648 \u0627\u0644\u062A\u0646\u0633\u064A\u0642\u0627\u062A \u063A\u064A\u0631 \u0627\u0644\u0628\u0634\u0631\u064A\u0629 \u0645\u062B\u0644 (*, **, #, \`\`\`).
-`;
-    let stepInstruction = "";
-    let stepData = {};
-    switch (session.currentState) {
-      case "GREETING":
-        const branchDeptStrings = tenant.branches.map((b, i) => {
-          const branchDoctors = tenant.doctors.filter((d) => d.branchId === b.id || d.branchName === b.name);
-          const branchServices = tenant.services.filter(
-            (s) => branchDoctors.some((d) => d.name === s.doctorName || !s.doctorName)
-          );
-          const branchDepts = Array.from(new Set(branchServices.map((s) => s.department).filter(Boolean)));
-          const deptStr = branchDepts.length > 0 ? branchDepts.join(" \u060C ") : tenant.departments ? tenant.departments.join(" \u060C ") : "\u0639\u0627\u0645";
-          return `${i + 1}. ${b.name} \u0628\u064A\u0647 \u0642\u0633\u0645 (${deptStr})`;
-        });
-        stepInstruction = `\u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u062F\u0627\u0641\u0626\u0629 \u0648\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u062A\u0627\u0628\u0639\u0629 \u062F\u064A\u0646\u0627\u0645\u064A\u0643\u064A\u0627\u064B \u0628\u0646\u0641\u0633 \u0627\u0644\u062A\u0646\u0633\u064A\u0642 \u0627\u0644\u062A\u0627\u0645 \u0627\u0644\u062A\u0627\u0644\u064A:
-\u0635\u0628\u0627\u062D \u0627\u0644\u0646\u0648\u0631 \u0648\u0627\u0644\u0633\u0631\u0648\u0631\u060C \u0646\u0648\u0631\u062A \u0639\u064A\u0627\u062F\u0629 ${tenant.clinicName}. \u062A\u062F\u0644\u0644\u060C \u0647\u0627\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0639\u0646\u062F\u0646\u0627 \u0648\u0628\u0623\u064A \u0648\u0627\u062D\u062F \u062A\u062D\u0628 \u0646\u062D\u062C\u0632\u0644\u0643:
-
-${branchDeptStrings.join("\n")}
-
-\u0634\u0648\u0641 \u0623\u0642\u0631\u0628 \u0641\u0631\u0639 \u0648\u064A\u0627 \u0642\u0633\u0645 \u062A\u062D\u062A\u0627\u062C \u0648\u062A\u062F\u0644\u0644 \u0639\u0644\u0645\u0648\u062F \u0623\u0646\u0637\u064A\u0643 \u0623\u0642\u0631\u0628 \u062D\u062C\u0632\u060C \u0634\u0646\u0648 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0644\u064A \u064A\u0646\u0627\u0633\u0628\u0643 \u062D\u062A\u0649 \u0646\u0643\u0645\u0644 \u0628\u0627\u0642\u064A \u0627\u0644\u0625\u062C\u0631\u0627\u0621\u0627\u062A \u0648\u064A\u0627\u0643\u061F`;
-        stepData = {
-          branchDepartmentsList: branchDeptStrings.join("\n")
-        };
-        break;
-      case "SELECT_DEPARTMENT":
-        const branchDeptStringsSel = tenant.branches.map((b, i) => {
-          const branchDoctors = tenant.doctors.filter((d) => d.branchId === b.id || d.branchName === b.name);
-          const branchServices = tenant.services.filter(
-            (s) => branchDoctors.some((d) => d.name === s.doctorName || !s.doctorName)
-          );
-          const branchDepts = Array.from(new Set(branchServices.map((s) => s.department).filter(Boolean)));
-          const deptStr = branchDepts.length > 0 ? branchDepts.join(" \u060C ") : tenant.departments ? tenant.departments.join(" \u060C ") : "\u0639\u0627\u0645";
-          return `${i + 1}. ${b.name} \u0628\u064A\u0647 \u0642\u0633\u0645 (${deptStr})`;
-        });
-        stepInstruction = `\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u062A\u0627\u0628\u0639\u0629 \u062F\u064A\u0646\u0627\u0645\u064A\u0643\u064A\u0627\u064B \u0628\u0646\u0641\u0633 \u0627\u0644\u062A\u0646\u0633\u064A\u0642 \u0627\u0644\u062A\u0627\u0645 \u0627\u0644\u062A\u0627\u0644\u064A \u0648\u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0623\u064A \u0641\u0631\u0639 \u0648\u0642\u0633\u0645 \u064A\u062D\u062A\u0627\u062C:
-\u0635\u0628\u0627\u062D \u0627\u0644\u0646\u0648\u0631 \u0648\u0627\u0644\u0633\u0631\u0648\u0631\u060C \u0646\u0648\u0631\u062A \u0639\u064A\u0627\u062F\u0629 ${tenant.clinicName}. \u062A\u062F\u0644\u0644\u060C \u0647\u0627\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0639\u0646\u062F\u0646\u0627 \u0648\u0628\u0623\u064A \u0648\u0627\u062D\u062F \u062A\u062D\u0628 \u0646\u062D\u062C\u0632\u0644\u0643:
-
-${branchDeptStringsSel.join("\n")}
-
-\u0634\u0648\u0641 \u0623\u0642\u0631\u0628 \u0641\u0631\u0639 \u0648\u064A\u0627 \u0642\u0633\u0645 \u062A\u062D\u062A\u0627\u062C \u0648\u062A\u062F\u0644\u0644 \u0639\u0644\u0645\u0648\u062F \u0623\u0646\u0637\u064A\u0643 \u0623\u0642\u0631\u0628 \u062D\u062C\u0632\u060C \u0634\u0646\u0648 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0644\u064A \u062A\u0646\u0627\u0633\u0628\u0643 \u062D\u062A\u0649 \u0646\u0643\u0645\u0644 \u0628\u0627\u0642\u064A \u0627\u0644\u0625\u062C\u0631\u0627\u0621\u0627\u062A \u0648\u064A\u0627\u0643\u061F`;
-        stepData = {
-          branchDepartmentsList: branchDeptStringsSel.join("\n")
-        };
-        break;
-      case "SELECT_BRANCH":
-        const filteredBranches = session.selectedDepartment ? tenant.branches.filter((b) => {
-          const deptServices2 = tenant.services.filter((s) => s.department === session.selectedDepartment);
-          const deptDoctors = tenant.doctors.filter((d) => deptServices2.some((s) => s.doctorName === d.name || !s.doctorName));
-          return deptDoctors.some((d) => d.branchName === b.name || d.branchId === b.id);
-        }) : tenant.branches;
-        const targetBranches = filteredBranches.length > 0 ? filteredBranches : tenant.branches;
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0648\u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0623\u0646\u0633\u0628.";
-        stepData = {
-          branchesList: targetBranches.map((b, i) => `${i + 1}. ${b.name} (${b.address})`).join("\n")
-        };
-        break;
-      case "SELECT_SERVICE":
-        const deptServices = session.selectedDepartment ? tenant.services.filter((s) => s.department === session.selectedDepartment) : tenant.services;
-        const availServices = deptServices.length > 0 ? deptServices : tenant.services;
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u062E\u062F\u0645\u0627\u062A \u0628\u0623\u0633\u0645\u0627\u0621 \u0641\u0642\u0637 \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0645\u0631\u064A\u062D (1. , 2.). \u0648\u0646\u0631\u062C\u062D \u0644\u0644\u0645\u0631\u0627\u062C\u0639 \u0643\u0634\u0641\u064A\u0629 \u0648\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0639\u0627\u0645\u0629 \u062F\u0627\u0626\u0645\u0627\u064B \u0644\u0644\u062A\u0634\u062E\u064A\u0635 \u0627\u0644\u062F\u0642\u064A\u0642.";
-        stepData = {
-          servicesList: availServices.map((s, i) => `${i + 1}. ${s.name}${s.price > 0 ? ` - ${s.price} \u062F\u064A\u0646\u0627\u0631` : ""}`).join("\n\n"),
-          recommendation: "\u0646\u0646\u0635\u062D \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0643\u0634\u0641\u064A\u0629 \u0648\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0639\u0627\u0645\u0629 \u0643\u062E\u064A\u0627\u0631 \u0623\u0648\u0644 \u0644\u062A\u062D\u062F\u064A\u062F \u0627\u0644\u0627\u062D\u062A\u064A\u0627\u062C \u0627\u0644\u062F\u0642\u064A\u0642"
-        };
-        break;
-      case "SELECT_DOCTOR":
-        const selectedBranchDoctors = tenant.doctors.filter(
-          (d) => !session.selectedBranchId || d.branchId === session.selectedBranchId || d.branchName === session.selectedBranchName
-        );
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0623\u0637\u0628\u0627\u0621 \u0627\u0644\u0645\u062A\u0627\u062D\u064A\u0646 \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0639\u0646\u062F \u0637\u0644\u0628 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0641\u0642\u0637.";
-        stepData = {
-          doctorsList: selectedBranchDoctors.map((d, i) => `${i + 1}. \u062F\u0643\u062A\u0648\u0631/\u062F\u0643\u062A\u0648\u0631\u0629 ${d.name} (${d.specialty})`).join("\n")
-        };
-        break;
-      case "SELECT_DATE_TIME":
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0636\u0645\u0646 \u062F\u0648\u0627\u0645 \u0627\u0644\u0637\u0628\u064A\u0628 \u0641\u0642\u0637 \u0648\u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u062A\u062D\u062F\u064A\u062F.";
-        stepData = {
-          selectedDoctor: tenant.doctors.find((d) => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName)?.name,
-          availableSlots: session.selectedSlot ? [`\u063A\u062F\u0627\u064B ${session.selectedSlot.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${session.selectedSlot.startTime}`] : "\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u062F\u0648\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A"
-        };
-        break;
-      case "COLLECT_PATIENT_NAME":
-        stepInstruction = "\u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u062A\u0632\u0648\u064A\u062F\u0643 \u0628\u0627\u0633\u0645\u0647 \u0627\u0644\u0645\u062D\u062A\u0631\u0645 \u0644\u062A\u062B\u0628\u064A\u062A \u0627\u0644\u0645\u0648\u0639\u062F.";
-        stepData = {};
-        break;
-      case "CONFIRMATION_PENDING":
-        const branch = session.selectedBranchName || tenant.branches.find((b) => b.id === session.selectedBranchId)?.name || "";
-        const doctor = session.selectedDoctorName || tenant.doctors.find((d) => d.id === session.selectedDoctorId)?.name || "";
-        const service = session.selectedServiceName || tenant.services.find((s) => s.id === session.selectedServiceId)?.name || "";
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0645\u0644\u062E\u0635 \u0627\u0644\u062D\u062C\u0632 \u0648\u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0646\u0647\u0627\u0626\u064A.";
-        stepData = {
-          patientName: session.patientName,
-          branch,
-          doctor,
-          service,
-          date: session.selectedSlot?.date,
-          time: session.selectedSlot?.startTime
-        };
-        break;
-      case "CONFIRMED":
-        const confBranch = tenant.branches.find((b) => b.id === session.selectedBranchId || b.name === session.selectedBranchName) || tenant.branches[0];
-        const confService = tenant.services.find((s) => s.id === session.selectedServiceId || s.name === session.selectedServiceName) || tenant.services[0];
-        const confDoctor = tenant.doctors.find((d) => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName) || tenant.doctors[0];
-        stepInstruction = `\u0623\u0635\u062F\u0631\u064A \u0627\u0644\u0648\u0635\u0644 \u0627\u0644\u0631\u0642\u0645\u064A \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0627\u0644\u0623\u0646\u064A\u0642 \u0627\u0644\u0645\u0643\u062A\u0645\u0644 \u0628\u0646\u0641\u0633 \u0627\u0644\u062A\u0646\u0633\u064A\u0642 \u0627\u0644\u062A\u0627\u0645 \u0627\u0644\u062A\u0627\u0644\u064A \u062F\u0648\u0646 \u0623\u064A \u0627\u062E\u062A\u0635\u0627\u0631:
-\u062A\u0645 \u062A\u062B\u0628\u064A\u062A \u062D\u062C\u0632\u0643 \u0628\u0646\u062C\u0627\u062D \u0648\u0628\u0634\u0643\u0644 \u0646\u0647\u0627\u0626\u064A \u0639\u064A\u0646\u064A! \u2705
-
-\u{1F4CB} \u062A\u0641\u0627\u0635\u064A\u0644 \u0645\u0648\u0639\u062F\u0643:
-- \u0627\u0644\u0627\u0633\u0645: ${session.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645"}
-- \u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641: ${phone || "\u0627\u0644\u0645\u0633\u062C\u0644 \u0641\u064A \u0627\u0644\u0648\u0627\u062A\u0633\u0627\u0628"}
-- \u0627\u0644\u0641\u0631\u0639: ${confBranch.name}
-- \u0627\u0644\u0637\u0628\u064A\u0628: ${confDoctor.name}
-- \u0627\u0644\u062E\u062F\u0645\u0629: ${confService.name}
-- \u0627\u0644\u0645\u0648\u0639\u062F: \u063A\u062F\u0627\u064B ${session.selectedSlot?.date || ""} \u0627\u0644\u0633\u0627\u0639\u0629 ${session.selectedSlot?.startTime || ""}
-- \u0643\u0648\u062F \u0627\u0644\u062D\u062C\u0632: ${session.bookingCode}
-
-\u{1F4CD} \u0631\u0627\u0628\u0637 \u062E\u0631\u064A\u0637\u0629 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u062C\u063A\u0631\u0627\u0641\u064A:
-${confBranch.locationLink || "\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0631\u0626\u064A\u0633\u064A"}
-
-\u26A0\uFE0F \u062A\u0639\u0644\u064A\u0645\u0627\u062A \u0647\u0627\u0645\u0629 \u0642\u0628\u0644 \u0627\u0644\u062D\u0636\u0648\u0631: ${confService.preAppointmentInstructions || "\u064A\u0631\u062C\u0649 \u0627\u0644\u062D\u0636\u0648\u0631 \u0642\u0628\u0644 \u0627\u0644\u0645\u0648\u0639\u062F \u0628\u0640 15 \u062F\u0642\u064A\u0642\u0629 \u0645\u0635\u062D\u0648\u0628\u0627\u064B \u0628\u0627\u0644\u0647\u0648\u064A\u0629 \u0627\u0644\u0634\u062E\u0635\u064A\u0629."}
-
-\u0646\u0646\u062A\u0638\u0631\u0643 \u062A\u0646\u0648\u0631\u0646\u0627 \u0628\u0640 \u0627\u0644\u0639\u064A\u0627\u062F\u0629! \u{1F338}`;
-        stepData = {
-          bookingCode: session.bookingCode,
-          patientName: session.patientName,
-          serviceName: confService.name,
-          locationLink: confBranch.locationLink || "",
-          date: session.selectedSlot?.date,
-          startTime: session.selectedSlot?.startTime
-        };
-        break;
-      case "HUMAN_HANDOFF":
-        stepInstruction = "\u0623\u0639\u0644\u0645\u064A \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0627\u0639\u062A\u0630\u0627\u0631 \u0644\u0637\u064A\u0641 \u0648\u0623\u0646 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631 \u0633\u064A\u0648\u0627\u0635\u0644 \u0645\u0639\u0647 \u0645\u0628\u0627\u0634\u0631\u0629\u064B \u0645\u0639 \u062A\u0632\u0648\u064A\u062F\u0647 \u0628\u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641.";
-        stepData = {
-          secretaryPhone: tenant.secretaryPhone
-        };
-        break;
-    }
-    return {
-      step: session.currentState,
-      clinicName: tenant.clinicName,
-      stepInstruction,
-      stepData,
-      userMessage,
-      personaGuidance
-    };
   }
 };
 
@@ -1125,19 +1049,45 @@ var GoogleCalendarService = class {
   }
 };
 
-// src/fsm/state-manager.ts
-var FsmStateManager = class {
+// src/core/dynamic-slot-engine.ts
+var DynamicSlotEngine = class {
   static sessions = /* @__PURE__ */ new Map();
   static getSessionsStore() {
     return this.sessions;
   }
   /**
-   * Process incoming WhatsApp user message through FSM Engine with full Error Catching & Daily Rate Limiting
+   * Format operational working hours cleanly (12-hour format e.g., 9 صباحاً لـ 4 عصراً)
+   */
+  static formatWorkingHours(startHour, endHour) {
+    const formatH = (h) => {
+      const displayH = h % 12 || 12;
+      const period = h >= 12 ? h >= 17 ? "\u0645\u0633\u0627\u0621\u064B" : "\u0639\u0635\u0631\u0627\u064B" : "\u0635\u0628\u0627\u062D\u0627\u064B";
+      return `${displayH} ${period}`;
+    };
+    return `${formatH(startHour)} \u0644\u063A\u0627\u064A\u0629 ${formatH(endHour)}`;
+  }
+  /**
+   * Helper to format dynamic branch departments list
+   */
+  static getBranchDepartmentsList(tenant) {
+    return tenant.branches.map((b, i) => {
+      const branchDoctors = tenant.doctors.filter((d) => d.branchId === b.id || d.branchName === b.name);
+      const branchServices = tenant.services.filter(
+        (s) => branchDoctors.some((d) => d.name === s.doctorName || !s.doctorName)
+      );
+      const branchDepts = Array.from(new Set(branchServices.map((s) => s.department).filter(Boolean)));
+      const deptStr = branchDepts.length > 0 ? branchDepts.join(" \u060C ") : tenant.departments ? tenant.departments.join(" \u060C ") : "\u0639\u0627\u0645";
+      return `${i + 1}. \u0641\u0631\u0639 ${b.name} \u0628\u064A\u0647 \u0642\u0633\u0645 (${deptStr})`;
+    }).join("\n");
+  }
+  /**
+   * Process incoming WhatsApp user message through Dynamic Slot Engine
    */
   static async processMessage(phone, messageText, tenant) {
     const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
     const dailyLimit = parseInt(process.env.DAILY_MESSAGE_LIMIT || "1000", 10);
-    const isExplicitReset = /^(تصفير|ريست|reset|إعادة ضبط)$/i.test(messageText.trim());
+    const trimmedMsg = messageText.trim();
+    const isExplicitReset = /^(تصفير|ريست|reset|إعادة ضبط)$/i.test(trimmedMsg);
     if (isExplicitReset) {
       this.sessions.delete(phone);
       GoogleSheetsService.clearCache();
@@ -1146,6 +1096,10 @@ var FsmStateManager = class {
         phoneNumber: phone,
         tenantId: tenant.tenantId,
         currentState: "GREETING",
+        status: "IN_PROGRESS",
+        slots: {
+          patientName: crmPatient?.patientName
+        },
         patientName: crmPatient?.patientName,
         isReturningPatient: !!crmPatient,
         patientTag: crmPatient ? "RETURNING" : "NEW",
@@ -1155,20 +1109,12 @@ var FsmStateManager = class {
         lastMessageDate: todayStr
       };
       this.sessions.set(phone, newSession);
-      const branchDeptStrings = tenant.branches.map((b, i) => {
-        const branchDoctors = tenant.doctors.filter((d) => d.branchId === b.id || d.branchName === b.name);
-        const branchServices = tenant.services.filter(
-          (s) => branchDoctors.some((d) => d.name === s.doctorName || !s.doctorName)
-        );
-        const branchDepts = Array.from(new Set(branchServices.map((s) => s.department).filter(Boolean)));
-        const deptStr = branchDepts.length > 0 ? branchDepts.join(" \u060C ") : tenant.departments ? tenant.departments.join(" \u060C ") : "\u0639\u0627\u0645";
-        return `${i + 1}. \u0641\u0631\u0639 ${b.name} \u0628\u064A\u0647 \u0642\u0633\u0645 (${deptStr})`;
-      });
+      const branchDeptStr = this.getBranchDepartmentsList(tenant);
       return `\u062A\u0645 \u062A\u0635\u0641\u064A\u0631 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0648\u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0636\u0628\u0637 \u0628\u0646\u062C\u0627\u062D \u0639\u064A\u0646\u064A. \u{1F338}
 
 \u0635\u0628\u0627\u062D \u0627\u0644\u0646\u0648\u0631 \u0648\u0627\u0644\u0633\u0631\u0648\u0631\u060C \u0646\u0648\u0631\u062A \u0639\u064A\u0627\u062F\u0629 ${tenant.clinicName}. \u062A\u062F\u0644\u0644\u060C \u0647\u0627\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0639\u0646\u062F\u0646\u0627 \u0648\u0628\u0623\u064A \u0648\u0627\u062D\u062F \u062A\u062D\u0628 \u0646\u062D\u062C\u0632\u0644\u0643:
 
-${branchDeptStrings.join("\n")}
+${branchDeptStr}
 
 \u0634\u0648\u0641 \u0623\u0642\u0631\u0628 \u0641\u0631\u0639 \u0648\u064A\u0627 \u0642\u0633\u0645 \u062A\u062D\u062A\u0627\u062C \u0648\u062A\u062F\u0644\u0644 \u0639\u0644\u0645\u0648\u062F \u0623\u0646\u0637\u064A\u0643 \u0623\u0642\u0631\u0628 \u062D\u062C\u0632\u060C \u0634\u0646\u0648 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0644\u064A \u064A\u0646\u0627\u0633\u0628\u0643 \u062D\u062A\u0649 \u0646\u0643\u0645\u0644 \u0628\u0627\u0642\u064A \u0627\u0644\u0625\u062C\u0631\u0627\u0621\u0627\u062A \u0648\u064A\u0627\u0643\u061F`;
     }
@@ -1179,6 +1125,10 @@ ${branchDeptStrings.join("\n")}
         phoneNumber: phone,
         tenantId: tenant.tenantId,
         currentState: "GREETING",
+        status: "IN_PROGRESS",
+        slots: {
+          patientName: crmPatient?.patientName
+        },
         patientName: crmPatient?.patientName,
         isReturningPatient: !!crmPatient,
         patientTag: crmPatient ? "RETURNING" : "NEW",
@@ -1198,350 +1148,245 @@ ${branchDeptStrings.join("\n")}
     }
     session.lastInteractionTime = Date.now();
     if ((session.dailyMessageCount || 0) > dailyLimit) {
-      console.warn(`[Rate Limit Exceeded] Phone ${phone} reached daily limit of ${dailyLimit} messages.`);
-      return `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u0648\u0635\u0644\u0646\u0627 \u0644\u0644\u062D\u062F \u0627\u0644\u0623\u0642\u0635\u0649 \u0627\u0644\u0645\u0633\u0645\u0648\u062D \u0644\u0644\u0631\u0633\u0627\u0626\u0644 \u0627\u0644\u064A\u0648\u0645\u064A\u0629 \u0644\u0644\u062D\u0641\u0627\u0638 \u0639\u0644\u0649 \u062C\u0648\u062F\u0629 \u0627\u0644\u062E\u062F\u0645\u0629. \u062A\u0642\u062F\u0631 \u062A\u062A\u0648\u0627\u0635\u0644 \u0648\u062A\u0643\u0645\u0644 \u062D\u062C\u0632\u0643 \u0645\u0628\u0627\u0634\u0631\u0629 \u0648\u064A\u0629 \u0627\u0644\u0633\u0643\u0631\u062A\u0627\u0631\u064A\u0629 \u0639\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0645\u0628\u0627\u0634\u0631: ${tenant.secretaryPhone} \u062E\u0644\u0627\u0644 \u0633\u0627\u0639\u0627\u062A \u0627\u0644\u062F\u0648\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A\u0629.`;
+      return `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u0648\u0635\u0644\u0646\u0627 \u0644\u0644\u062D\u062F \u0627\u0644\u0623\u0642\u0635\u0649 \u0627\u0644\u0645\u0633\u0645\u0648\u062D \u0644\u0644\u0631\u0633\u0627\u0626\u0644 \u0627\u0644\u064A\u0648\u0645\u064A\u0629. \u062A\u0642\u062F\u0631 \u062A\u062A\u0648\u0627\u0635\u0644 \u0645\u0628\u0627\u0634\u0631\u0629 \u0648\u064A\u0629 \u0627\u0644\u0633\u0643\u0631\u062A\u0627\u0631\u064A\u0629 \u0639\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645: ${tenant.secretaryPhone} \u062E\u0644\u0627\u0644 \u0633\u0627\u0639\u0627\u062A \u0627\u0644\u062F\u0648\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A\u0629.`;
+    }
+    if (!session.slots) {
+      session.slots = { patientName: session.patientName };
+    }
+    if (session.status === "COMPLETED_LOCKED") {
+      const isNewBookingReq = /حجز جديد|موعد ثاني|تعديل|أغير/i.test(trimmedMsg);
+      if (isNewBookingReq) {
+        session.status = "IN_PROGRESS";
+        session.slots = { patientName: session.patientName };
+      } else {
+        return await GeminiService.generatePoliteClosingResponse(trimmedMsg, tenant);
+      }
     }
     try {
-      const nluResult = await GeminiService.parseNluIntent(
-        messageText,
-        session.currentState,
-        tenant
-      );
-      const isCancelRequest = nluResult.intent === "CANCEL_BOOKING" || /إلغاء الحجز|الغاء الحجز|الغي الحجز|أريد ألغي/i.test(messageText);
-      const isModifyRequest = nluResult.intent === "MODIFY_BOOKING" || /تعديل الحجز|أغير الموعد|تغيير الموعد/i.test(messageText);
-      if (isCancelRequest || isModifyRequest) {
-        const activeBooking = await GoogleSheetsService.findActiveBookingByPhone(phone);
-        if (activeBooking) {
-          if (isCancelRequest) {
-            const success = await GoogleSheetsService.cancelBookingInSheet(activeBooking.bookingCode);
-            if (success) {
-              this.sessions.delete(phone);
-              return `\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u062D\u062C\u0632\u0643 \u0627\u0644\u0633\u0627\u0628\u0642 (${activeBooking.bookingCode}) \u0628\u0646\u062C\u0627\u062D \u0639\u064A\u0646\u064A. \u0625\u0630\u0627 \u062D\u0628\u064A\u062A \u062A\u062D\u062C\u0632 \u0645\u0648\u0639\u062F \u062C\u062F\u064A\u062F \u0628\u0623\u064A \u0648\u0642\u062A\u060C \u0625\u062D\u0646\u0627 \u0628\u0627\u0646\u062A\u0638\u0627\u0631\u0643 \u0628\u0631\u062D\u0627\u0628\u0629 \u0635\u062F\u0631! \u{1F338}`;
-            } else {
-              return `\u0639\u064A\u0646\u064A \u062D\u0627\u0648\u0644\u0646\u0627 \u0646\u0644\u063A\u064A \u0627\u0644\u062D\u062C\u0632 \u0644\u0643\u0648\u062F ${activeBooking.bookingCode} \u0648\u0628\u0633 \u0635\u0627\u0631 \u062E\u0644\u0644 \u0628\u0627\u0644\u0634\u0628\u0643\u0629\u060C \u0631\u0627\u062D \u0646\u062D\u0648\u0644\u0643 \u0644\u0640 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631 \u0644\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0645\u0628\u0627\u0634\u0631.`;
-            }
-          } else if (isModifyRequest) {
-            await GoogleSheetsService.cancelBookingInSheet(activeBooking.bookingCode);
-            session.currentState = "GREETING";
-            return `\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u062D\u062C\u0632\u0643 \u0627\u0644\u0633\u0627\u0628\u0642 (${activeBooking.bookingCode}) \u0644\u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0645\u0648\u0639\u062F. \u062A\u0641\u0636\u0644 \u0627\u062E\u062A\u0627\u0631 \u0627\u0644\u0642\u0633\u0645 \u0648\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0645\u0646\u0627\u0633\u0628 \u0625\u0644\u0643 \u0644\u062A\u062B\u0628\u064A\u062A \u0645\u0648\u0639\u062F\u0643 \u0627\u0644\u062C\u062F\u064A\u062F! \u2728`;
-          }
-        } else {
-          return `\u0639\u064A\u0646\u064A \u0645\u0627 \u0644\u0642\u064A\u0646\u0627 \u062D\u062C\u0632 \u0646\u0634\u0637 \u0645\u0633\u062C\u0644 \u0628\u0647\u0627\u062F \u0627\u0644\u0631\u0642\u0645. \u0625\u0630\u0627 \u062A\u062D\u0628 \u062A\u062B\u0628\u062A \u062D\u062C\u0632 \u062C\u062F\u064A\u062F\u060C \u0643\u0644\u064A\u0644\u064A \u0634\u0646\u0648 \u0627\u0644\u0642\u0633\u0645 \u0623\u0648 \u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0645\u062D\u062A\u0627\u062C\u0647\u0627 \u0648\u062A\u062F\u0644\u0644!`;
+      let processedText = messageText;
+      if (messageText.startsWith("AUDIO_BASE64:")) {
+        const audioBase64 = messageText.replace("AUDIO_BASE64:", "");
+        processedText = await GeminiService.transcribeAudioNote(audioBase64);
+        if (!processedText) {
+          return `\u0639\u0641\u0648\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u0645\u0627 \u0642\u062F\u0631\u0646\u0627 \u0646\u0633\u0645\u0639 \u0627\u0644\u0628\u0635\u0645\u0629 \u0627\u0644\u0635\u0648\u062A\u064A\u0629 \u0628\u0648\u0636\u0648\u062D. \u064A\u0631\u062C\u0649 \u0643\u062A\u0627\u0628\u0629 \u0637\u0644\u0628\u0643 \u0623\u0648 \u0625\u0639\u0627\u062F\u0629 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0628\u0635\u0645\u0629 \u0648\u062A\u062F\u0644\u0644!`;
         }
       }
-      if (nluResult.intent === "REQUEST_HUMAN" || nluResult.intent === "ANGRY_EXPRESSION" || HandoffManager.shouldTriggerHandoff(session, nluResult.intent, nluResult.confidence)) {
+      const isExplicitHuman = /أريد أحكي ويا سكرتير|حولني على إنسان|أريد سكرتير|سكرتير/i.test(processedText);
+      if (isExplicitHuman) {
         await GoogleSheetsService.logComplaint({
           timestamp: (/* @__PURE__ */ new Date()).toISOString(),
           patientName: session.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
           phoneNumber: phone,
-          complaintContent: messageText,
+          complaintContent: processedText,
           status: "PENDING"
         });
-        if (session.patientName) {
-          await GoogleSheetsService.savePatientCRM({
-            phoneNumber: phone,
-            patientName: session.patientName,
-            platform: "WhatsApp",
-            totalBookings: 1,
-            lastVisitDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
-          });
-        }
         return HandoffManager.executeHandoff(session, tenant);
       }
-      if (nluResult.intent === "ASK_FAQ") {
-        const faqAnswer = await GeminiService.answerFaq(messageText, tenant);
-        const sliced2 = ContextSlicer.slice(session, tenant, messageText);
-        const resumePrompt = await GeminiService.generateIraqiResponse(sliced2, tenant);
-        return `${faqAnswer}
-${resumePrompt}`;
-      }
-      const requestsFullBranches = /اعرض (كل|جميع) (الفروع|فروع)/i.test(messageText);
-      const requestsFullServices = /اعرض (كل|جميع) (الخدمات|خدمات)/i.test(messageText);
-      const trimmedMsg = messageText.trim();
-      const numMatch = trimmedMsg.match(/^(?:رقم\s*)?([1-9]\d*)$/);
+      const nluResult = await GeminiService.analyzeAndExtractSlots(processedText, session.slots, tenant);
+      const numMatch = processedText.match(/^(?:رقم\s*)?([1-9]\d*)$/);
       const inputIndex = numMatch ? parseInt(numMatch[1]) - 1 : -1;
-      let responseText = "";
-      switch (session.currentState) {
-        case "GREETING":
-          if (inputIndex >= 0 && inputIndex < tenant.branches.length) {
-            session.selectedBranchId = tenant.branches[inputIndex].id;
-            session.selectedBranchName = tenant.branches[inputIndex].name;
-            const branchDoctors = tenant.doctors.filter((d) => d.branchId === tenant.branches[inputIndex].id || d.branchName === tenant.branches[inputIndex].name);
-            const branchServices = tenant.services.filter((s) => branchDoctors.some((d) => d.name === s.doctorName || !s.doctorName));
-            const branchDepts = Array.from(new Set(branchServices.map((s) => s.department).filter(Boolean)));
-            if (branchDepts.length > 0) {
-              session.selectedDepartment = branchDepts[0];
-            }
-          }
-          const initBranch = tenant.branches.find((b) => messageText.includes(b.name));
-          const initDept = (tenant.departments || []).find((d) => messageText.includes(d));
-          if (initBranch) {
-            session.selectedBranchId = initBranch.id;
-            session.selectedBranchName = initBranch.name;
-          }
-          if (initDept) {
-            session.selectedDepartment = initDept;
-          }
-          if (session.selectedBranchId || session.selectedDepartment) {
-            session.currentState = "SELECT_SERVICE";
-          } else {
-            session.currentState = "GREETING";
-            const branchDeptStrings = tenant.branches.map((b, i) => {
-              const branchDoctors = tenant.doctors.filter((d) => d.branchId === b.id || d.branchName === b.name);
-              const branchServices = tenant.services.filter(
-                (s) => branchDoctors.some((d) => d.name === s.doctorName || !s.doctorName)
-              );
-              const branchDepts = Array.from(new Set(branchServices.map((s) => s.department).filter(Boolean)));
-              const deptStr = branchDepts.length > 0 ? branchDepts.join(" \u060C ") : tenant.departments ? tenant.departments.join(" \u060C ") : "\u0639\u0627\u0645";
-              return `${i + 1}. \u0641\u0631\u0639 ${b.name} \u0628\u064A\u0647 \u0642\u0633\u0645 (${deptStr})`;
-            });
-            return `\u0635\u0628\u0627\u062D \u0627\u0644\u0646\u0648\u0631 \u0648\u0627\u0644\u0633\u0631\u0648\u0631\u060C \u0646\u0648\u0631\u062A \u0639\u064A\u0627\u062F\u0629 ${tenant.clinicName}. \u062A\u062F\u0644\u0644\u060C \u0647\u0627\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0639\u0646\u062F\u0646\u0627 \u0648\u0628\u0623\u064A \u0648\u0627\u062D\u062F \u062A\u062D\u0628 \u0646\u062D\u062C\u0632\u0644\u0643:
-
-${branchDeptStrings.join("\n")}
-
-\u0634\u0648\u0641 \u0623\u0642\u0631\u0628 \u0641\u0631\u0639 \u0648\u064A\u0627 \u0642\u0633\u0645 \u062A\u062D\u062A\u0627\u062C \u0648\u062A\u062F\u0644\u0644 \u0639\u0644\u0645\u0648\u062F \u0623\u0646\u0637\u064A\u0643 \u0623\u0642\u0631\u0628 \u062D\u062C\u0632\u060C \u0634\u0646\u0648 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0644\u064A \u064A\u0646\u0627\u0633\u0628\u0643 \u062D\u062A\u0649 \u0646\u0643\u0645\u0644 \u0628\u0627\u0642\u064A \u0627\u0644\u0625\u062C\u0631\u0627\u0621\u0627\u062A \u0648\u064A\u0627\u0643\u061F`;
-          }
-          session.failedNluAttempts = 0;
-          break;
-        case "SELECT_DEPARTMENT":
-          if (inputIndex >= 0 && tenant.departments && inputIndex < tenant.departments.length) {
-            session.selectedDepartment = tenant.departments[inputIndex];
-            session.failedNluAttempts = 0;
-          } else if (nluResult.entities.departmentName) {
-            session.selectedDepartment = nluResult.entities.departmentName;
-            session.failedNluAttempts = 0;
-          } else if (tenant.departments && tenant.departments.length > 0) {
-            const matchDept = tenant.departments.find((d) => messageText.includes(d));
-            session.selectedDepartment = matchDept || session.selectedDepartment || tenant.departments[0];
-          }
-          const matchedBranchInDept = tenant.branches.find((b) => messageText.includes(b.name) || nluResult.entities.branchName && b.name.includes(nluResult.entities.branchName));
-          if (matchedBranchInDept) {
-            session.selectedBranchId = matchedBranchInDept.id;
-            session.selectedBranchName = matchedBranchInDept.name;
-          }
-          const matchingBranches = tenant.branches.filter((b) => {
-            const deptServices2 = tenant.services.filter((s) => s.department === session.selectedDepartment);
-            const deptDoctors = tenant.doctors.filter((d) => deptServices2.some((s) => s.doctorName === d.name || !s.doctorName));
-            return deptDoctors.some((d) => d.branchName === b.name || d.branchId === b.id);
-          });
-          if (session.selectedBranchId || matchingBranches.length === 1 && !requestsFullBranches) {
-            if (!session.selectedBranchId && matchingBranches.length === 1) {
-              session.selectedBranchId = matchingBranches[0].id;
-              session.selectedBranchName = matchingBranches[0].name;
-            }
-            session.currentState = "SELECT_SERVICE";
-          } else {
-            session.currentState = "SELECT_BRANCH";
-          }
-          break;
-        case "SELECT_BRANCH":
-          const availBranches = tenant.branches;
-          if (inputIndex >= 0 && inputIndex < availBranches.length) {
-            session.selectedBranchId = availBranches[inputIndex].id;
-            session.selectedBranchName = availBranches[inputIndex].name;
-            session.currentState = "SELECT_SERVICE";
-            session.failedNluAttempts = 0;
-          } else if (nluResult.entities.branchName) {
-            const matchBranch = availBranches.find((b) => b.name.includes(nluResult.entities.branchName));
-            if (matchBranch) {
-              session.selectedBranchId = matchBranch.id;
-              session.selectedBranchName = matchBranch.name;
-              session.currentState = "SELECT_SERVICE";
-              session.failedNluAttempts = 0;
-            } else {
-              session.failedNluAttempts++;
-            }
-          } else {
-            const matchBranch = availBranches.find((b) => messageText.includes(b.name)) || availBranches[0];
-            session.selectedBranchId = matchBranch.id;
-            session.selectedBranchName = matchBranch.name;
-            session.currentState = "SELECT_SERVICE";
-          }
-          break;
-        case "SELECT_SERVICE":
-          const deptServices = session.selectedDepartment ? tenant.services.filter((s) => s.department === session.selectedDepartment) : tenant.services;
-          const targetServices = deptServices.length > 0 ? deptServices : tenant.services;
-          if (deptServices.length === 1 && !requestsFullServices) {
-            session.selectedServiceId = deptServices[0].id;
-            session.selectedServiceName = deptServices[0].name;
-            session.currentState = "SELECT_DOCTOR";
-          } else if (inputIndex >= 0 && inputIndex < targetServices.length) {
-            session.selectedServiceId = targetServices[inputIndex].id;
-            session.selectedServiceName = targetServices[inputIndex].name;
-            session.currentState = "SELECT_DOCTOR";
-            session.failedNluAttempts = 0;
-          } else if (nluResult.entities.serviceName) {
-            const matchService = targetServices.find((s) => s.name.includes(nluResult.entities.serviceName));
-            if (matchService) {
-              session.selectedServiceId = matchService.id;
-              session.selectedServiceName = matchService.name;
-              session.currentState = "SELECT_DOCTOR";
-              session.failedNluAttempts = 0;
-            } else {
-              session.failedNluAttempts++;
-            }
-          } else {
-            const matchService = targetServices[0];
-            session.selectedServiceId = matchService.id;
-            session.selectedServiceName = matchService.name;
-            session.currentState = "SELECT_DOCTOR";
-          }
-          break;
-        case "SELECT_DOCTOR":
-          const selectedBranchDoctors = tenant.doctors.filter(
-            (d) => !session.selectedBranchId || d.branchId === session.selectedBranchId || d.branchName === session.selectedBranchName
-          );
-          const targetDoctors = selectedBranchDoctors.length > 0 ? selectedBranchDoctors : tenant.doctors;
-          if (inputIndex >= 0 && inputIndex < targetDoctors.length) {
-            session.selectedDoctorId = targetDoctors[inputIndex].id;
-            session.selectedDoctorName = targetDoctors[inputIndex].name;
-            session.currentState = "SELECT_DATE_TIME";
-            session.failedNluAttempts = 0;
-          } else if (nluResult.entities.doctorName) {
-            const matchDoctor = targetDoctors.find((d) => d.name.includes(nluResult.entities.doctorName));
-            if (matchDoctor) {
-              session.selectedDoctorId = matchDoctor.id;
-              session.selectedDoctorName = matchDoctor.name;
-              session.currentState = "SELECT_DATE_TIME";
-              session.failedNluAttempts = 0;
-            } else {
-              session.failedNluAttempts++;
-            }
-          } else {
-            const matchDoctor = targetDoctors[0];
-            session.selectedDoctorId = matchDoctor.id;
-            session.selectedDoctorName = matchDoctor.name;
-            session.currentState = "SELECT_DATE_TIME";
-          }
-          if (session.selectedDoctorId) {
-            const doctor = tenant.doctors.find((d) => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName);
-            const service = tenant.services.find((s) => s.id === session.selectedServiceId || s.name === session.selectedServiceName);
-            const tomorrowDate = SlotGenerator.getTomorrowDate();
-            const slots = SlotGenerator.generateAvailableSlots(doctor, tomorrowDate, [], service?.durationMinutes || 30);
-            if (slots.length > 0) {
-              session.selectedSlot = slots[0];
-              SlotGenerator.lockSlotTemporarily(slots[0]);
-            }
-          }
-          break;
-        case "SELECT_DATE_TIME":
-          if (messageText.includes("\u0634\u0643\u0631\u0627") || messageText.includes("\u0634\u0643\u0631\u0627\u064B") || messageText.includes("\u0645\u0627 \u0627\u0631\u064A\u062F") || messageText.includes("\u0645\u0627 \u0623\u0631\u064A\u062F") || messageText.includes("\u0628\u0627\u064A") || messageText.includes("\u0644\u0627 \u062A\u0633\u0648\u064A") || messageText.includes("\u062A\u0635\u0628\u062D \u0639\u0644\u0649 \u062E\u064A\u0631")) {
-            session.currentState = "GREETING";
-            return "\u0623\u0647\u0644\u0627\u064B \u0648\u0633\u0647\u0644\u0627\u064B \u0628\u064A\u0643 \u0639\u064A\u0646\u064A! \u0625\u0630\u0627 \u063A\u064A\u0631\u062A \u0631\u0623\u064A\u0643 \u0623\u0648 \u0627\u062D\u062A\u0627\u062C\u064A\u062A \u0623\u064A \u062D\u062C\u0632 \u0628\u0640 \u0623\u064A \u0648\u0642\u062A\u060C \u0625\u062D\u0646\u0627 \u0628\u0640 \u0627\u0644\u062E\u062F\u0645\u0629 \u0648\u0645\u0648\u062C\u0648\u062F\u064A\u0646 \u062F\u0627\u0626\u0645\u0627\u064B. \u064A\u0648\u0645\u0643 \u0633\u0639\u064A\u062F! \u{1F338}";
-          }
-          const doctorForHours = tenant.doctors.find((d) => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName) || tenant.doctors[0];
-          const timeMatch = messageText.match(/(\d{1,2})\s*(بالليل|مساءً|عصراً|صباحاً|PM|AM)?/i);
-          if (timeMatch) {
-            let reqHour = parseInt(timeMatch[1]);
-            const period = timeMatch[2]?.toLowerCase() || "";
-            if ((period.includes("\u0644\u064A\u0644") || period.includes("\u0645\u0633\u0627\u0621") || period.includes("\u0639\u0635\u0631") || period.includes("pm")) && reqHour < 12) {
-              reqHour += 12;
-            }
-            if ((period.includes("\u0635\u0628\u0627\u062D") || period.includes("am")) && reqHour === 12) {
-              reqHour = 0;
-            }
-            const { startHour, endHour } = doctorForHours.workingHours;
-            if (reqHour < startHour || reqHour >= endHour) {
-              const service = tenant.services.find((s) => s.id === session.selectedServiceId || s.name === session.selectedServiceName);
-              const validSlots = SlotGenerator.generateAvailableSlots(doctorForHours, SlotGenerator.getTomorrowDate(), [], service?.durationMinutes || 30);
-              const slotTimes = validSlots.slice(0, 3).map((s) => s.startTime).join(" \u060C ");
-              return `\u0639\u064A\u0646\u064A \u062F\u0643\u062A\u0648\u0631/\u062F\u0643\u062A\u0648\u0631\u0629 ${doctorForHours.name} \u0645\u062A\u0648\u0641\u0631 \u0641\u064A ${doctorForHours.branchName} \u0645\u0646 \u0627\u0644\u0633\u0627\u0639\u0629 ${startHour > 12 ? startHour - 12 : startHour} \u0635\u0628\u0627\u062D\u0627\u064B \u0644\u063A\u0627\u064A\u0629 ${endHour > 12 ? endHour - 12 : endHour} \u0639\u0635\u0631\u0627\u064B \u0641\u0642\u0637. 
-
-\u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 \u0644\u063A\u062F\u064D \u0647\u064A: (${slotTimes || "\u0645\u0646 9 \u0635\u0628\u0627\u062D\u0627\u064B"}). \u0623\u064A\u0647\u0645 \u062A\u0641\u0636\u0644 \u062D\u062D\u062C\u0632\u0647 \u0644\u0643\u061F`;
-            }
-          }
-          if (nluResult.intent === "SELECT_SLOT" || nluResult.intent === "CONFIRM" || session.selectedSlot) {
-            if (session.patientName) {
-              session.currentState = "CONFIRMATION_PENDING";
-            } else {
-              session.currentState = "COLLECT_PATIENT_NAME";
-            }
-            session.failedNluAttempts = 0;
-          } else {
-            session.failedNluAttempts++;
-          }
-          break;
-        case "COLLECT_PATIENT_NAME":
-          if (nluResult.entities.patientName || messageText.length > 2) {
-            session.patientName = nluResult.entities.patientName || messageText.trim();
-            session.currentState = "CONFIRMATION_PENDING";
-            session.failedNluAttempts = 0;
-          } else {
-            session.failedNluAttempts++;
-          }
-          break;
-        case "CONFIRMATION_PENDING":
-          if (nluResult.intent === "CONFIRM" || messageText.includes("\u0646\u0639\u0645") || messageText.includes("\u062A\u0623\u0643\u064A\u062F") || messageText.includes("\u0627\u0648\u0643\u064A")) {
-            session.currentState = "CONFIRMED";
-            session.bookingCode = `BK-${Math.floor(1e3 + Math.random() * 9e3)}`;
-            const branch = tenant.branches.find((b) => b.id === session.selectedBranchId || b.name === session.selectedBranchName) || tenant.branches[0];
-            const doctor = tenant.doctors.find((d) => d.id === session.selectedDoctorId || d.name === session.selectedDoctorName) || tenant.doctors[0];
-            const service = tenant.services.find((s) => s.id === session.selectedServiceId || s.name === session.selectedServiceName) || tenant.services[0];
-            const defaultStartH = doctor.workingHours?.startHour || 9;
-            const defaultStartTime = session.selectedSlot?.startTime || `${defaultStartH.toString().padStart(2, "0")}:00`;
-            const effectiveDuration = Math.ceil((service.durationMinutes || 30) * 1.2);
-            const [startH, startMin] = defaultStartTime.split(":").map(Number);
-            const totalEndMin = startH * 60 + (startMin || 0) + effectiveDuration;
-            const computedEndH = Math.floor(totalEndMin / 60).toString().padStart(2, "0");
-            const computedEndM = (totalEndMin % 60).toString().padStart(2, "0");
-            const defaultEndTime = session.selectedSlot?.endTime || `${computedEndH}:${computedEndM}`;
-            const booking = {
-              bookingCode: session.bookingCode,
-              tenantId: tenant.tenantId,
-              patientPhone: phone,
-              patientName: session.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
-              patientTag: session.isReturningPatient ? "RETURNING" : "NEW",
-              branchId: branch.id,
-              branchName: branch.name,
-              doctorId: doctor.id,
-              doctorName: doctor.name,
-              serviceId: service.id,
-              serviceName: service.name,
-              department: session.selectedDepartment || "\u0639\u0627\u0645",
-              date: session.selectedSlot?.date || SlotGenerator.getTomorrowDate(),
-              startTime: defaultStartTime,
-              endTime: defaultEndTime,
-              durationMinutes: effectiveDuration,
-              status: "CONFIRMED",
-              createdAt: (/* @__PURE__ */ new Date()).toISOString()
-            };
-            await GoogleCalendarService.syncAppointment(booking, doctor);
-            await GoogleSheetsService.saveBooking(booking);
-            await GoogleSheetsService.savePatientCRM({
-              phoneNumber: phone,
-              patientName: session.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
-              platform: "WhatsApp",
-              totalBookings: 1,
-              lastVisitDate: booking.date
-            });
-            await GoogleSheetsService.logAnalytics("BOOKING_CONFIRMED", `Booking: ${booking.bookingCode}, Patient: ${booking.patientName}, Doctor: ${booking.doctorName}`);
-          } else if (nluResult.intent === "CANCEL") {
-            if (session.selectedSlot) SlotGenerator.unlockSlot(session.selectedSlot);
-            session.currentState = "GREETING";
-            await GoogleSheetsService.logAnalytics("BOOKING_CANCELLED", `Phone: ${phone}`);
-            return "\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u0637\u0644\u0628 \u0627\u0644\u062D\u062C\u0632 \u0628\u0646\u062C\u0627\u062D \u0639\u064A\u0646\u064A. \u0634\u0648\u0643\u062A \u0645\u0627 \u062A\u062D\u0628 \u062A\u062D\u062C\u0632 \u0627\u062D\u0646\u0627 \u0628\u0627\u0646\u062A\u0638\u0627\u0631\u0643 \u0628\u0631\u062D\u0627\u0628\u0629 \u0635\u062F\u0631.";
-          }
-          break;
-        case "CONFIRMED":
-          session.currentState = "GREETING";
-          break;
+      if (nluResult.extractedSlots) {
+        if (nluResult.extractedSlots.branchName) session.slots.branchName = nluResult.extractedSlots.branchName;
+        if (nluResult.extractedSlots.branchId) session.slots.branchId = nluResult.extractedSlots.branchId;
+        if (nluResult.extractedSlots.department) session.slots.department = nluResult.extractedSlots.department;
+        if (nluResult.extractedSlots.serviceName) session.slots.serviceName = nluResult.extractedSlots.serviceName;
+        if (nluResult.extractedSlots.serviceId) session.slots.serviceId = nluResult.extractedSlots.serviceId;
+        if (nluResult.extractedSlots.doctorName) session.slots.doctorName = nluResult.extractedSlots.doctorName;
+        if (nluResult.extractedSlots.doctorId) session.slots.doctorId = nluResult.extractedSlots.doctorId;
+        if (nluResult.extractedSlots.date) session.slots.date = nluResult.extractedSlots.date;
+        if (nluResult.extractedSlots.startTime) session.slots.startTime = nluResult.extractedSlots.startTime;
+        if (nluResult.extractedSlots.patientName && nluResult.extractedSlots.patientName.length > 2 && !/قسم|فرع|حجز|خدمة|موعد/i.test(nluResult.extractedSlots.patientName)) {
+          session.slots.patientName = nluResult.extractedSlots.patientName;
+          session.patientName = nluResult.extractedSlots.patientName;
+        }
       }
-      const sliced = ContextSlicer.slice(session, tenant, messageText);
-      responseText = await GeminiService.generateIraqiResponse(sliced, tenant);
-      return responseText;
-    } catch (error) {
-      console.error("[System Exception Caught]:", error);
-      try {
-        await GoogleSheetsService.logSystemError(
-          `[\u062E\u0637\u0623 \u0646\u0638\u0627\u0645]: ${error.message || String(error)}`,
-          phone,
-          session?.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645"
+      if (inputIndex >= 0) {
+        if (!session.slots.branchName && inputIndex < tenant.branches.length) {
+          session.slots.branchId = tenant.branches[inputIndex].id;
+          session.slots.branchName = tenant.branches[inputIndex].name;
+        } else if (!session.slots.serviceName) {
+          const deptServices = session.slots.department ? tenant.services.filter((s) => s.department === session.slots.department) : tenant.services;
+          const availServices = deptServices.length > 0 ? deptServices : tenant.services;
+          if (inputIndex < availServices.length) {
+            session.slots.serviceId = availServices[inputIndex].id;
+            session.slots.serviceName = availServices[inputIndex].name;
+          }
+        }
+      }
+      if (nluResult.intent === "ASK_FAQ") {
+        const faqAnswer = await GeminiService.answerFaq(processedText, tenant);
+        const missingPrompt = this.getMissingSlotPrompt(session, tenant);
+        return `${faqAnswer}
+
+${missingPrompt}`;
+      }
+      if (!session.slots.branchName && session.slots.department) {
+        const matchingBranches = tenant.branches.filter((b) => {
+          const deptServices = tenant.services.filter((s) => s.department === session.slots.department);
+          const deptDoctors = tenant.doctors.filter((d) => deptServices.some((s) => s.doctorName === d.name || !s.doctorName));
+          return deptDoctors.some((d) => d.branchName === b.name || d.branchId === b.id);
+        });
+        if (matchingBranches.length === 1) {
+          session.slots.branchId = matchingBranches[0].id;
+          session.slots.branchName = matchingBranches[0].name;
+        }
+      }
+      if (!session.slots.serviceName && session.slots.department) {
+        const deptServices = tenant.services.filter((s) => s.department === session.slots.department);
+        if (deptServices.length === 1) {
+          session.slots.serviceId = deptServices[0].id;
+          session.slots.serviceName = deptServices[0].name;
+        }
+      }
+      if (!session.slots.doctorName) {
+        const branchDocs = tenant.doctors.filter(
+          (d) => (!session.slots?.branchId || d.branchId === session.slots.branchId || d.branchName === session.slots.branchName) && (!session.slots?.department || d.specialty?.includes(session.slots.department) || tenant.services.some((s) => s.department === session.slots.department && (s.doctorName === d.name || !s.doctorName)))
         );
-      } catch (logErr) {
-        console.error("[Automated Error Log Failed]:", logErr);
+        if (branchDocs.length === 1) {
+          session.slots.doctorId = branchDocs[0].id;
+          session.slots.doctorName = branchDocs[0].name;
+        }
       }
+      if (!session.slots.startTime && session.slots.doctorName) {
+        const doctor = tenant.doctors.find((d) => d.id === session.slots?.doctorId || d.name === session.slots?.doctorName) || tenant.doctors[0];
+        const service = tenant.services.find((s) => s.id === session.slots?.serviceId || s.name === session.slots?.serviceName);
+        const tomorrowDate = SlotGenerator.getTomorrowDate();
+        const slots = SlotGenerator.generateAvailableSlots(doctor, tomorrowDate, [], service?.durationMinutes || 30);
+        if (slots.length > 0) {
+          session.slots.date = slots[0].date;
+          session.slots.startTime = slots[0].startTime;
+          session.selectedSlot = slots[0];
+        }
+      }
+      if (this.isAllSlotsFilled(session.slots)) {
+        return await this.finalizeBooking(session, phone, tenant);
+      }
+      return this.getMissingSlotPrompt(session, tenant);
+    } catch (error) {
+      console.error("[DynamicSlotEngine Error]:", error);
+      await GoogleSheetsService.logSystemError(`[DynamicEngine Error]: ${error.message || String(error)}`, phone, session?.patientName);
       return `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u062D\u0635\u0644 \u0627\u0646\u0642\u0637\u0627\u0639 \u0645\u0624\u0642\u062A \u0628\u0627\u0644\u062E\u062F\u0645\u0629. \u062A\u0642\u062F\u0631 \u062A\u062A\u0648\u0627\u0635\u0644 \u0648\u062A\u0643\u0645\u0644 \u062D\u062C\u0632\u0643 \u0645\u0628\u0627\u0634\u0631\u0629 \u0648\u064A\u0629 \u0627\u0644\u0633\u0643\u0631\u062A\u0627\u0631\u064A\u0629 \u0639\u0644\u0649 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0645\u0628\u0627\u0634\u0631: ${tenant.secretaryPhone || "07881015584"} \u062E\u0644\u0627\u0644 \u0633\u0627\u0639\u0627\u062A \u0627\u0644\u062F\u0648\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A\u0629.`;
     }
+  }
+  /**
+   * Check if all mandatory booking slots are filled
+   */
+  static isAllSlotsFilled(slots) {
+    return !!((slots.branchName || slots.branchId) && (slots.serviceName || slots.serviceId) && (slots.doctorName || slots.doctorId) && slots.startTime && slots.patientName);
+  }
+  /**
+   * Prompt for the single next missing slot cleanly
+   */
+  static getMissingSlotPrompt(session, tenant) {
+    const s = session.slots || {};
+    if (!s.branchName && !s.department) {
+      const branchDeptStr = this.getBranchDepartmentsList(tenant);
+      return `\u0635\u0628\u0627\u062D \u0627\u0644\u0646\u0648\u0631 \u0648\u0627\u0644\u0633\u0631\u0648\u0631\u060C \u0646\u0648\u0631\u062A \u0639\u064A\u0627\u062F\u0629 ${tenant.clinicName}. \u062A\u062F\u0644\u0644\u060C \u0647\u0627\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0639\u0646\u062F\u0646\u0627 \u0648\u0628\u0623\u064A \u0648\u0627\u062D\u062F \u062A\u062D\u0628 \u0646\u062D\u062C\u0632\u0644\u0643:
+
+${branchDeptStr}
+
+\u0634\u0648\u0641 \u0623\u0642\u0631\u0628 \u0641\u0631\u0639 \u0648\u064A\u0627 \u0642\u0633\u0645 \u062A\u062D\u062A\u0627\u062C \u0648\u062A\u062F\u0644\u0644 \u0639\u0644\u0645\u0648\u062F \u0623\u0646\u0637\u064A\u0643 \u0623\u0642\u0631\u0628 \u062D\u062C\u0632\u060C \u0634\u0646\u0648 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0644\u064A \u064A\u0646\u0627\u0633\u0628\u0643 \u062D\u062A\u0649 \u0646\u0643\u0645\u0644 \u0628\u0627\u0642\u064A \u0627\u0644\u0625\u062C\u0631\u0627\u0621\u0627\u062A \u0648\u064A\u0627\u0643\u061F`;
+    }
+    if (!s.serviceName) {
+      const deptServices = s.department ? tenant.services.filter((srv) => srv.department === s.department) : tenant.services;
+      const availServices = deptServices.length > 0 ? deptServices : tenant.services;
+      const servicesList = availServices.map((srv, i) => `${i + 1}. ${srv.name}${srv.price > 0 ? ` - ${srv.price} \u062F\u064A\u0646\u0627\u0631` : ""}`).join("\n\n");
+      return `\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A\u060C \u0647\u0627\u064A \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u062E\u062F\u0645\u0627\u062A \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0639\u0646\u062F\u0646\u0627:
+
+${servicesList}
+
+(\u0648\u0646\u0631\u062C\u062D \u0644\u0643 \u0643\u0634\u0641\u064A\u0629 \u0648\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0639\u0627\u0645\u0629 \u0643\u062E\u064A\u0627\u0631 \u0623\u0648\u0644 \u0644\u062A\u0634\u062E\u064A\u0635 \u0627\u0644\u0627\u062D\u062A\u064A\u0627\u062C \u0627\u0644\u062F\u0642\u064A\u0642). \u0634\u0646\u0648 \u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0644\u064A \u062A\u062D\u0628 \u062A\u062E\u062A\u0627\u0631\u0647\u0627\u061F`;
+    }
+    if (!s.doctorName) {
+      const branchDocs = tenant.doctors.filter(
+        (d) => !s.branchId || d.branchId === s.branchId || d.branchName === s.branchName
+      );
+      const targetDocs = branchDocs.length > 0 ? branchDocs : tenant.doctors;
+      const docsList = targetDocs.map((d, i) => `${i + 1}. \u062F\u0643\u062A\u0648\u0631/\u062F\u0643\u062A\u0648\u0631\u0629 ${d.name} (${d.specialty})`).join("\n");
+      return `\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A\u060C \u0627\u0644\u0623\u0637\u0628\u0627\u0621 \u0627\u0644\u0645\u062A\u0627\u062D\u0648\u0646 \u0641\u064A ${s.branchName || "\u0627\u0644\u0641\u0631\u0639"}:
+
+${docsList}
+
+\u0623\u064A\u0647\u0645 \u062A\u0641\u0636\u0644 \u062A\u062D\u062C\u0632 \u0639\u0646\u062F\u0647\u061F`;
+    }
+    if (!s.startTime) {
+      const doctor = tenant.doctors.find((d) => d.id === s.doctorId || d.name === s.doctorName) || tenant.doctors[0];
+      const hoursStr = this.formatWorkingHours(doctor.workingHours.startHour, doctor.workingHours.endHour);
+      return `\u0639\u064A\u0646\u064A \u062F\u0643\u062A\u0648\u0631/\u062F\u0643\u062A\u0648\u0631\u0629 ${doctor.name} \u0645\u062A\u0648\u0641\u0631 \u0641\u064A ${doctor.branchName} \u062E\u0644\u0627\u0644 \u0623\u0648\u0642\u0627\u062A \u0627\u0644\u062F\u0648\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 (${hoursStr}). 
+
+\u0634\u0646\u0648 \u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0645\u0646\u0627\u0633\u0628 \u0644\u0643 \u063A\u062F\u0627\u064B \u062D\u062A\u0649 \u0623\u062B\u0628\u062A\u0647 \u0644\u0643\u061F`;
+    }
+    if (!s.patientName) {
+      return `\u062A\u062F\u0644\u0644 \u0639\u064A\u0646\u064A! \u0628\u0642\u0649 \u0628\u0633 \u062A\u0632\u0648\u062F\u0646\u0627 \u0628\u0640 \u0627\u0633\u0645\u0643 \u0627\u0644\u0645\u062D\u062A\u0631\u0645 \u062D\u062A\u0649 \u0646\u062B\u0628\u062A \u0627\u0644\u062D\u062C\u0632 \u0648\u0646\u0635\u062F\u0631 \u0644\u0643 \u0643\u0627\u0631\u062A \u0627\u0644\u0645\u0648\u0639\u062F \u0627\u0644\u0631\u0633\u0645\u064A! \u{1F338}`;
+    }
+    return `\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A\u060C \u0643\u0644\u064A\u0644\u064A \u0634\u0646\u0648 \u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0644\u064A \u062A\u062D\u0628 \u0646\u0648\u0636\u062D\u0647\u0627 \u0644\u0643\u061F`;
+  }
+  /**
+   * Finalize Booking: Create Record, Sync Calendar, Save Sheet CRM, Issue Digital Receipt Card & Lock Session
+   */
+  static async finalizeBooking(session, phone, tenant) {
+    session.bookingCode = `BK-${Math.floor(1e3 + Math.random() * 9e3)}`;
+    const s = session.slots || {};
+    const branch = tenant.branches.find((b) => b.id === s.branchId || b.name === s.branchName) || tenant.branches[0];
+    const doctor = tenant.doctors.find((d) => d.id === s.doctorId || d.name === s.doctorName) || tenant.doctors[0];
+    const service = tenant.services.find((srv) => srv.id === s.serviceId || srv.name === s.serviceName) || tenant.services[0];
+    const defaultStartH = doctor.workingHours?.startHour || 9;
+    const defaultStartTime = s.startTime || `${defaultStartH.toString().padStart(2, "0")}:00`;
+    const effectiveDuration = Math.ceil((service.durationMinutes || 30) * 1.2);
+    const [startH, startMin] = defaultStartTime.split(":").map(Number);
+    const totalEndMin = startH * 60 + (startMin || 0) + effectiveDuration;
+    const computedEndH = Math.floor(totalEndMin / 60).toString().padStart(2, "0");
+    const computedEndM = (totalEndMin % 60).toString().padStart(2, "0");
+    const computedEndTime = `${computedEndH}:${computedEndM}`;
+    const bookingDate = s.date || SlotGenerator.getTomorrowDate();
+    const booking = {
+      bookingCode: session.bookingCode,
+      tenantId: tenant.tenantId,
+      patientPhone: phone,
+      patientName: s.patientName || session.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
+      patientTag: session.isReturningPatient ? "RETURNING" : "NEW",
+      branchId: branch.id,
+      branchName: branch.name,
+      doctorId: doctor.id,
+      doctorName: doctor.name,
+      serviceId: service.id,
+      serviceName: service.name,
+      department: s.department || "\u0639\u0627\u0645",
+      date: bookingDate,
+      startTime: defaultStartTime,
+      endTime: computedEndTime,
+      durationMinutes: effectiveDuration,
+      status: "CONFIRMED",
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    await GoogleCalendarService.syncAppointment(booking, doctor);
+    await GoogleSheetsService.saveBooking(booking);
+    await GoogleSheetsService.savePatientCRM({
+      phoneNumber: phone,
+      patientName: booking.patientName,
+      platform: "WhatsApp",
+      totalBookings: 1,
+      lastVisitDate: booking.date
+    });
+    await GoogleSheetsService.logAnalytics("BOOKING_CONFIRMED", `Booking: ${booking.bookingCode}, Patient: ${booking.patientName}, Doctor: ${booking.doctorName}`);
+    session.status = "COMPLETED_LOCKED";
+    return `\u062A\u0645 \u062A\u062B\u0628\u064A\u062A \u062D\u062C\u0632\u0643 \u0628\u0646\u062C\u0627\u062D \u0648\u0628\u0634\u0643\u0644 \u0646\u0647\u0627\u0626\u064A \u0639\u064A\u0646\u064A! \u2705
+
+\u{1F4CB} \u062A\u0641\u0627\u0635\u064A\u0644 \u0645\u0648\u0639\u062F\u0643:
+- \u0627\u0644\u0627\u0633\u0645: ${booking.patientName}
+- \u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641: ${phone}
+- \u0627\u0644\u0641\u0631\u0639: ${branch.name}
+- \u0627\u0644\u0637\u0628\u064A\u0628: ${doctor.name}
+- \u0627\u0644\u062E\u062F\u0645\u0629: ${service.name}
+- \u0627\u0644\u0645\u0648\u0639\u062F: \u063A\u062F\u0627\u064B ${booking.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${defaultStartTime}
+- \u0643\u0648\u062F \u0627\u0644\u062D\u062C\u0632: ${booking.bookingCode}
+
+\u{1F4CD} \u0631\u0627\u0628\u0637 \u062E\u0631\u064A\u0637\u0629 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u062C\u063A\u0631\u0627\u0641\u064A:
+${branch.locationLink || "\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0631\u0626\u064A\u0633\u064A"}
+
+\u26A0\uFE0F \u062A\u0639\u0644\u064A\u0645\u0627\u062A \u0647\u0627\u0645\u0629 \u0642\u0628\u0644 \u0627\u0644\u062D\u0636\u0648\u0631: ${service.preAppointmentInstructions || "\u064A\u0631\u062C\u0649 \u0627\u0644\u062D\u0636\u0648\u0631 \u0642\u0628\u0644 \u0627\u0644\u0645\u0648\u0639\u062F \u0628\u0640 15 \u062F\u0642\u064A\u0642\u0629 \u0645\u0635\u062D\u0648\u0628\u0627\u064B \u0628\u0627\u0644\u0647\u0648\u064A\u0629 \u0627\u0644\u0634\u062E\u0635\u064A\u0629."}
+
+\u0646\u0646\u062A\u0638\u0631\u0643 \u062A\u0646\u0648\u0631\u0646\u0627 \u0628\u0640 \u0627\u0644\u0639\u064A\u0627\u062F\u0629! \u{1F338}`;
   }
 };
 
@@ -1629,7 +1474,7 @@ async function processAggregatedUserMessages(fromPhone, messages) {
   console.log(`[Processing Aggregated Messages for ${fromPhone}]: "${combinedText}"`);
   try {
     const tenant = await GoogleSheetsService.getTenantConfig();
-    const replyText = await FsmStateManager.processMessage(fromPhone, combinedText, tenant);
+    const replyText = await DynamicSlotEngine.processMessage(fromPhone, combinedText, tenant);
     console.log(`[WhatsApp Bot Reply to ${fromPhone}]: ${replyText}`);
     await sendWhatsAppCloudMessage(fromPhone, replyText);
   } catch (error) {
@@ -1652,7 +1497,7 @@ router.post("/api/chat", async (req, res) => {
     const rawText = String(message || "");
     const cleanText = rawText.length > 1e3 ? rawText.substring(0, 1e3) : rawText;
     const tenant = await GoogleSheetsService.getTenantConfig();
-    const replyText = await FsmStateManager.processMessage(phone, cleanText, tenant);
+    const replyText = await DynamicSlotEngine.processMessage(phone, cleanText, tenant);
     return res.json({
       phone,
       userMessage: cleanText,
@@ -1817,7 +1662,7 @@ app.get("/health", (req, res) => {
         });
       }
     });
-    WatchdogService.startMonitoring(FsmStateManager.getSessionsStore(), tenant);
+    WatchdogService.startMonitoring(DynamicSlotEngine.getSessionsStore(), tenant);
     console.log("[Watchdog Service] Started session monitor worker with Live WhatsApp Dispatcher.");
     ReminderJob.startScheduler();
     console.log("[Reminder Service] Started 4-hour pre-appointment background scheduler worker.");

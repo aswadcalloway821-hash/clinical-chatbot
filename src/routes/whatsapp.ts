@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { FsmStateManager } from '../fsm/state-manager.js';
+import { DynamicSlotEngine } from '../core/dynamic-slot-engine.js';
 import { GoogleSheetsService } from '../services/google-sheets.js';
 
 const router = Router();
@@ -133,7 +133,7 @@ async function processAggregatedUserMessages(fromPhone: string, messages: string
 
   try {
     const tenant = await GoogleSheetsService.getTenantConfig();
-    const replyText = await FsmStateManager.processMessage(fromPhone, combinedText, tenant);
+    const replyText = await DynamicSlotEngine.processMessage(fromPhone, combinedText, tenant);
 
     console.log(`[WhatsApp Bot Reply to ${fromPhone}]: ${replyText}`);
     await sendWhatsAppCloudMessage(fromPhone, replyText);
@@ -167,7 +167,7 @@ router.post('/api/chat', async (req: Request, res: Response) => {
     const cleanText = rawText.length > 1000 ? rawText.substring(0, 1000) : rawText;
 
     const tenant = await GoogleSheetsService.getTenantConfig();
-    const replyText = await FsmStateManager.processMessage(phone, cleanText, tenant);
+    const replyText = await DynamicSlotEngine.processMessage(phone, cleanText, tenant);
     
     return res.json({
       phone,

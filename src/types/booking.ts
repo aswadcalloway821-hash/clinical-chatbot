@@ -66,10 +66,27 @@ export interface TimeSlot {
   lockedUntil?: number;
 }
 
+export interface BookingSlots {
+  branchId?: string;
+  branchName?: string;
+  department?: string;
+  serviceId?: string;
+  serviceName?: string;
+  doctorId?: string;
+  doctorName?: string;
+  date?: string;
+  startTime?: string;
+  patientName?: string;
+}
+
+export type SessionStatus = 'IN_PROGRESS' | 'COMPLETED_LOCKED' | 'MODIFYING';
+
 export interface PatientSession {
   phoneNumber: string;
   tenantId: string;
   currentState: BookingState;
+  status?: SessionStatus;
+  slots?: BookingSlots;
   selectedDepartment?: string;
   selectedBranchId?: string;
   selectedBranchName?: string;
