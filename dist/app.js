@@ -1232,8 +1232,8 @@ ${resumePrompt}`;
               session.selectedDepartment = branchDepts[0];
             }
           }
-          const initBranch = tenant.branches.find((b) => messageText.includes(b.name) || nluResult.entities.branchName && b.name.includes(nluResult.entities.branchName));
-          const initDept = (tenant.departments || []).find((d) => messageText.includes(d) || nluResult.entities.departmentName && d.includes(nluResult.entities.departmentName));
+          const initBranch = tenant.branches.find((b) => messageText.includes(b.name));
+          const initDept = (tenant.departments || []).find((d) => messageText.includes(d));
           if (initBranch) {
             session.selectedBranchId = initBranch.id;
             session.selectedBranchName = initBranch.name;
