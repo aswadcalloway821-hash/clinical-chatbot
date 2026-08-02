@@ -39,10 +39,24 @@ export class ContextSlicer {
 
     switch (session.currentState) {
       case 'GREETING':
-        stepInstruction = 'رحبي بالمراجع بلهجة عراقية دافئة، واعرضي الفروع المتاحة والأقسام المتوفرة معاً في رسالة موحدة واحدة، واسأليه عن الفرع الأقرب والقسم الذي يحتاجه.';
+        const branchDeptStrings = tenant.branches.map((b, i) => {
+          const branchDoctors = tenant.doctors.filter(d => d.branchId === b.id || d.branchName === b.name);
+          const branchServices = tenant.services.filter(s =>
+            branchDoctors.some(d => d.name === s.doctorName || !s.doctorName)
+          );
+          const branchDepts = Array.from(new Set(branchServices.map(s => s.department).filter(Boolean)));
+          const deptStr = branchDepts.length > 0 ? branchDepts.join(' ، ') : (tenant.departments ? tenant.departments.join(' ، ') : 'عام');
+          return `${i + 1}. ${b.name} بيه قسم (${deptStr})`;
+        });
+
+        stepInstruction = `رحبي بالمراجع بلهجة عراقية دافئة واعرضي الفروع المتاحة وأقسامها التابعة ديناميكياً بنفس التنسيق التام التالي:
+صباح النور والسرور، نورت عيادة ${tenant.clinicName}. تدلل، هاي الفروع وأقسامها المتوفرة عندنا وبأي واحد تحب نحجزلك:
+
+${branchDeptStrings.join('\n')}
+
+شوف أقرب فرع ويا قسم تحتاج وتدلل علمود أنطيك أقرب حجز، شنو الاختيار اللي يناسبك حتى نكمل باقي الإجراءات وياك؟`;
         stepData = {
-          branchesList: tenant.branches.map((b, i) => `${i + 1}. ${b.name}`).join('\n'),
-          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. قسم ${d}`).join('\n')
+          branchDepartmentsList: branchDeptStrings.join('\n')
         };
         break;
 

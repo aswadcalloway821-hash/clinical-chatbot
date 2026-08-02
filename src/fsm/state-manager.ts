@@ -165,7 +165,17 @@ export class FsmStateManager {
 
       switch (session.currentState) {
         case 'GREETING':
-          // One-Shot extraction on initial message if user already provided info
+          if (inputIndex >= 0 && inputIndex < tenant.branches.length) {
+            session.selectedBranchId = tenant.branches[inputIndex].id;
+            session.selectedBranchName = tenant.branches[inputIndex].name;
+            const branchDoctors = tenant.doctors.filter(d => d.branchId === tenant.branches[inputIndex].id || d.branchName === tenant.branches[inputIndex].name);
+            const branchServices = tenant.services.filter(s => branchDoctors.some(d => d.name === s.doctorName || !s.doctorName));
+            const branchDepts = Array.from(new Set(branchServices.map(s => s.department).filter(Boolean)));
+            if (branchDepts.length > 0) {
+              session.selectedDepartment = branchDepts[0];
+            }
+          }
+
           const initBranch = tenant.branches.find(b => messageText.includes(b.name) || (nluResult.entities.branchName && b.name.includes(nluResult.entities.branchName)));
           const initDept = (tenant.departments || []).find(d => messageText.includes(d) || (nluResult.entities.departmentName && d.includes(nluResult.entities.departmentName)));
 
@@ -177,7 +187,7 @@ export class FsmStateManager {
             session.selectedDepartment = initDept;
           }
 
-          if (session.selectedBranchId && session.selectedDepartment) {
+          if (session.selectedBranchId || session.selectedDepartment) {
             session.currentState = 'SELECT_SERVICE';
           } else {
             session.currentState = 'SELECT_DEPARTMENT';
