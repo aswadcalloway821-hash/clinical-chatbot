@@ -44,7 +44,24 @@ export class FsmStateManager {
         lastMessageDate: todayStr
       };
       this.sessions.set(phone, newSession);
-      return `تم تصفير المحادثة وإعادة الضبط بنجاح عيني. أهلاً بك في ${tenant.clinicName}. كيف أقدر أساعدك؟`;
+
+      const branchDeptStrings = tenant.branches.map((b, i) => {
+        const branchDoctors = tenant.doctors.filter(d => d.branchId === b.id || d.branchName === b.name);
+        const branchServices = tenant.services.filter(s =>
+          branchDoctors.some(d => d.name === s.doctorName || !s.doctorName)
+        );
+        const branchDepts = Array.from(new Set(branchServices.map(s => s.department).filter(Boolean)));
+        const deptStr = branchDepts.length > 0 ? branchDepts.join(' ، ') : (tenant.departments ? tenant.departments.join(' ، ') : 'عام');
+        return `${i + 1}. فرع ${b.name} بيه قسم (${deptStr})`;
+      });
+
+      return `تم تصفير المحادثة وإعادة الضبط بنجاح عيني. 🌸
+
+صباح النور والسرور، نورت عيادة ${tenant.clinicName}. تدلل، هاي الفروع وأقسامها المتوفرة عندنا وبأي واحد تحب نحجزلك:
+
+${branchDeptStrings.join('\n')}
+
+شوف أقرب فرع ويا قسم تحتاج وتدلل علمود أنطيك أقرب حجز، شنو الاختيار اللي يناسبك حتى نكمل باقي الإجراءات وياك؟`;
     }
 
     let session = this.sessions.get(phone);
