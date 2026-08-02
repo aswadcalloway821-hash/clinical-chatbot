@@ -1,4 +1,6 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
+import { google } from 'googleapis';
 import { TenantConfig, Branch, Doctor, Service, Booking, PatientCRM, ComplaintRecord, AnalyticsRecord } from '../types/booking.js';
 
 dotenv.config();
@@ -63,9 +65,49 @@ export class GoogleSheetsService {
   }
 
   /**
-   * Fetch Access Token dynamically from Google OAuth2 Refresh Token
+   * Fetch Access Token dynamically from Service Account (Env Var / google-creds.json) or OAuth2 Refresh Token
    */
   private static async getAccessToken(): Promise<string | null> {
+    // 1. Try Environment Variable JSON string first (for Cloud / Render deployment)
+    try {
+      const saJsonEnv = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+      if (saJsonEnv) {
+        const credentials = JSON.parse(saJsonEnv);
+        const auth = new google.auth.GoogleAuth({
+          credentials,
+          scopes: [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/calendar'
+          ]
+        });
+        const client = await auth.getClient();
+        const tokenResponse = await client.getAccessToken();
+        if (tokenResponse.token) return tokenResponse.token;
+      }
+    } catch (envErr) {
+      console.warn('[Env Service Account Auth Warning]:', envErr);
+    }
+
+    // 2. Try local file google-creds.json (for local development)
+    try {
+      const credsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || 'google-creds.json';
+      if (fs.existsSync(credsPath)) {
+        const auth = new google.auth.GoogleAuth({
+          keyFile: credsPath,
+          scopes: [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/calendar'
+          ]
+        });
+        const client = await auth.getClient();
+        const tokenResponse = await client.getAccessToken();
+        if (tokenResponse.token) return tokenResponse.token;
+      }
+    } catch (saErr) {
+      console.warn('[File Service Account Auth Warning]:', saErr);
+    }
+
+    // 2. OAuth2 Refresh Token fallback
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
     const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
