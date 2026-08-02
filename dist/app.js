@@ -210,9 +210,23 @@ ${branchDeptStrings.join("\n")}
         };
         break;
       case "SELECT_DEPARTMENT":
-        stepInstruction = "\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0637\u0628\u064A\u0629 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0628\u062A\u0631\u0642\u064A\u0645 \u0639\u062F\u062F\u064A \u0648\u0627\u0635\u062D\u064A \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0628\u0627\u062E\u062A\u064A\u0627\u0631 \u0642\u0633\u0645.";
+        const branchDeptStringsSel = tenant.branches.map((b, i) => {
+          const branchDoctors = tenant.doctors.filter((d) => d.branchId === b.id || d.branchName === b.name);
+          const branchServices = tenant.services.filter(
+            (s) => branchDoctors.some((d) => d.name === s.doctorName || !s.doctorName)
+          );
+          const branchDepts = Array.from(new Set(branchServices.map((s) => s.department).filter(Boolean)));
+          const deptStr = branchDepts.length > 0 ? branchDepts.join(" \u060C ") : tenant.departments ? tenant.departments.join(" \u060C ") : "\u0639\u0627\u0645";
+          return `${i + 1}. ${b.name} \u0628\u064A\u0647 \u0642\u0633\u0645 (${deptStr})`;
+        });
+        stepInstruction = `\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u062A\u0627\u0628\u0639\u0629 \u062F\u064A\u0646\u0627\u0645\u064A\u0643\u064A\u0627\u064B \u0628\u0646\u0641\u0633 \u0627\u0644\u062A\u0646\u0633\u064A\u0642 \u0627\u0644\u062A\u0627\u0645 \u0627\u0644\u062A\u0627\u0644\u064A \u0648\u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0645\u0631\u0627\u062C\u0639 \u0623\u064A \u0641\u0631\u0639 \u0648\u0642\u0633\u0645 \u064A\u062D\u062A\u0627\u062C:
+\u0635\u0628\u0627\u062D \u0627\u0644\u0646\u0648\u0631 \u0648\u0627\u0644\u0633\u0631\u0648\u0631\u060C \u0646\u0648\u0631\u062A \u0639\u064A\u0627\u062F\u0629 ${tenant.clinicName}. \u062A\u062F\u0644\u0644\u060C \u0647\u0627\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0639\u0646\u062F\u0646\u0627 \u0648\u0628\u0623\u064A \u0648\u0627\u062D\u062F \u062A\u062D\u0628 \u0646\u062D\u062C\u0632\u0644\u0643:
+
+${branchDeptStringsSel.join("\n")}
+
+\u0634\u0648\u0641 \u0623\u0642\u0631\u0628 \u0641\u0631\u0639 \u0648\u064A\u0627 \u0642\u0633\u0645 \u062A\u062D\u062A\u0627\u062C \u0648\u062A\u062F\u0644\u0644 \u0639\u0644\u0645\u0648\u062F \u0623\u0646\u0637\u064A\u0643 \u0623\u0642\u0631\u0628 \u062D\u062C\u0632\u060C \u0634\u0646\u0648 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0644\u064A \u062A\u0646\u0627\u0633\u0628\u0643 \u062D\u062A\u0649 \u0646\u0643\u0645\u0644 \u0628\u0627\u0642\u064A \u0627\u0644\u0625\u062C\u0631\u0627\u0621\u0627\u062A \u0648\u064A\u0627\u0643\u061F`;
         stepData = {
-          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. \u0642\u0633\u0645 ${d}`).join("\n")
+          branchDepartmentsList: branchDeptStringsSel.join("\n")
         };
         break;
       case "SELECT_BRANCH":
@@ -1229,7 +1243,7 @@ ${resumePrompt}`;
           if (session.selectedBranchId || session.selectedDepartment) {
             session.currentState = "SELECT_SERVICE";
           } else {
-            session.currentState = "SELECT_DEPARTMENT";
+            session.currentState = "GREETING";
           }
           session.failedNluAttempts = 0;
           break;

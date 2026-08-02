@@ -61,9 +61,24 @@ ${branchDeptStrings.join('\n')}
         break;
 
       case 'SELECT_DEPARTMENT':
-        stepInstruction = 'اعرضي الأقسام الطبية المتوفرة بترقيم عددي واصحي المراجع باختيار قسم.';
+        const branchDeptStringsSel = tenant.branches.map((b, i) => {
+          const branchDoctors = tenant.doctors.filter(d => d.branchId === b.id || d.branchName === b.name);
+          const branchServices = tenant.services.filter(s =>
+            branchDoctors.some(d => d.name === s.doctorName || !s.doctorName)
+          );
+          const branchDepts = Array.from(new Set(branchServices.map(s => s.department).filter(Boolean)));
+          const deptStr = branchDepts.length > 0 ? branchDepts.join(' ، ') : (tenant.departments ? tenant.departments.join(' ، ') : 'عام');
+          return `${i + 1}. ${b.name} بيه قسم (${deptStr})`;
+        });
+
+        stepInstruction = `اعرضي الفروع المتاحة وأقسامها التابعة ديناميكياً بنفس التنسيق التام التالي واسألي المراجع أي فرع وقسم يحتاج:
+صباح النور والسرور، نورت عيادة ${tenant.clinicName}. تدلل، هاي الفروع وأقسامها المتوفرة عندنا وبأي واحد تحب نحجزلك:
+
+${branchDeptStringsSel.join('\n')}
+
+شوف أقرب فرع ويا قسم تحتاج وتدلل علمود أنطيك أقرب حجز، شنو الاختيار اللي تناسبك حتى نكمل باقي الإجراءات وياك؟`;
         stepData = {
-          departmentsList: (tenant.departments || []).map((d, i) => `${i + 1}. قسم ${d}`).join('\n')
+          branchDepartmentsList: branchDeptStringsSel.join('\n')
         };
         break;
 

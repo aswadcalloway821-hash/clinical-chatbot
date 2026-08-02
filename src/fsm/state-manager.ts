@@ -190,7 +190,7 @@ export class FsmStateManager {
           if (session.selectedBranchId || session.selectedDepartment) {
             session.currentState = 'SELECT_SERVICE';
           } else {
-            session.currentState = 'SELECT_DEPARTMENT';
+            session.currentState = 'GREETING';
           }
           session.failedNluAttempts = 0;
           break;
