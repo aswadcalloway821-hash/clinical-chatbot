@@ -8,30 +8,6 @@ import { Router } from "express";
 
 // src/services/gemini.ts
 import { GoogleGenerativeAI } from "@google/generative-ai";
-
-// src/utils/baghdad-time.ts
-function getBaghdadNow() {
-  return new Date((/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "Asia/Baghdad" }));
-}
-function formatDate(date) {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-function getBaghdadToday() {
-  return formatDate(getBaghdadNow());
-}
-function addDays(date, days) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-function getBaghdadTomorrow() {
-  return formatDate(addDays(getBaghdadNow(), 1));
-}
-
-// src/services/gemini.ts
 import dotenv from "dotenv";
 dotenv.config();
 var apiKey = process.env.GEMINI_API_KEY || "";
@@ -103,29 +79,31 @@ var GeminiService = class {
   "confidence": 0.95
 }
 `;
-    try {
-      const modelName = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        systemInstruction: this.getSystemInstruction(tenant),
-        generationConfig: { responseMimeType: "application/json" }
-      });
-      const response = await model.generateContent(prompt);
-      const text = response.response.text()?.trim() || "{}";
-      const parsed = JSON.parse(text);
-      return {
-        intent: parsed.intent || "UNKNOWN",
-        entities: parsed.entities || {},
-        confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.8
-      };
-    } catch (error) {
-      console.error("Gemini NLU Error:", error);
-      return {
-        intent: "UNKNOWN",
-        entities: {},
-        confidence: 0
-      };
+    const modelsToTry = [
+      process.env.GEMINI_MODEL || this.MODEL_FALLBACKS[0],
+      ...this.MODEL_FALLBACKS.filter((m) => m !== (process.env.GEMINI_MODEL || this.MODEL_FALLBACKS[0]))
+    ];
+    for (const modelName of modelsToTry) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: this.getSystemInstruction(tenant),
+          generationConfig: { responseMimeType: "application/json" }
+        });
+        const response = await this.retryWithBackoff(() => model.generateContent(prompt));
+        const text = response.response.text()?.trim() || "{}";
+        const parsed = JSON.parse(text);
+        return {
+          intent: parsed.intent || "UNKNOWN",
+          entities: parsed.entities || {},
+          confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.8
+        };
+      } catch (error) {
+        console.error(`[Gemini NLU] Model ${modelName} failed:`, error);
+        continue;
+      }
     }
+    return { intent: "UNKNOWN", entities: {}, confidence: 0 };
   }
   /**
    * Helper to get Current Baghdad Date String
@@ -258,6 +236,36 @@ var GeminiService = class {
   // ------------------------------------------------------------------
   static INTENTS = ["answer", "side_question", "confirm_slot", "decline_slot", "confirm_booking", "decline_booking", "cancel", "modify", "human", "greeting", "other"];
   static ACTIONS = ["NONE", "GET_SLOTS", "LIST_SERVICES", "COMMIT_BOOKING", "RESET"];
+  /** Model fallback list: try primary, then fallbacks if overloaded (503) */
+  static MODEL_FALLBACKS = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash"
+  ];
+  /** Retry with exponential backoff for transient errors (503, 429, 500) */
+  static async retryWithBackoff(fn, maxRetries = 2, baseDelayMs = 1e3) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        const isTransient = err?.status === 503 || err?.status === 429 || err?.status === 500;
+        if (!isTransient || attempt === maxRetries) throw err;
+        const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 500;
+        console.warn(`[Gemini Retry] Attempt ${attempt + 1} failed (${err?.status}), retrying in ${Math.round(delay)}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+    throw new Error("Unreachable");
+  }
+  /** Validate reply is not garbled — must contain real Arabic words, not random numbers */
+  static isValidReply(reply) {
+    if (!reply || reply.length < 5) return false;
+    if (/^\d{10,}/.test(reply)) return false;
+    if (/^[0-9\s:،,.-]+$/.test(reply)) return false;
+    const arabicChars = (reply.match(/[\u0600-\u06FF]/g) || []).length;
+    if (arabicChars < 3) return false;
+    return true;
+  }
   static async conductTurn(ctx) {
     const prompt = this.buildConductorPrompt(ctx);
     const fallback = {
@@ -266,29 +274,44 @@ var GeminiService = class {
       action: "NONE",
       proposed: {}
     };
-    try {
-      const modelName = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        systemInstruction: this.getSystemInstruction(ctx.tenant),
-        generationConfig: { responseMimeType: "application/json" }
-      });
-      const response = await model.generateContent(prompt);
-      const text = response.response.text()?.trim() || "";
-      const parsed = this.extractJson(text);
-      if (!parsed) return fallback;
-      const intent = this.INTENTS.includes(parsed.intent) ? parsed.intent : "other";
-      const action = this.ACTIONS.includes(parsed.action) ? parsed.action : "NONE";
-      return {
-        reply: this.cleanMarkdown(String(parsed.reply || "")) || fallback.reply,
-        intent,
-        action,
-        proposed: parsed.proposed && typeof parsed.proposed === "object" ? parsed.proposed : {}
-      };
-    } catch (err) {
-      console.error("Gemini Conductor Error:", err);
-      return fallback;
+    const modelsToTry = [
+      process.env.GEMINI_MODEL || this.MODEL_FALLBACKS[0],
+      ...this.MODEL_FALLBACKS.filter((m) => m !== (process.env.GEMINI_MODEL || this.MODEL_FALLBACKS[0]))
+    ];
+    for (const modelName of modelsToTry) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: this.getSystemInstruction(ctx.tenant),
+          generationConfig: { responseMimeType: "application/json" }
+        });
+        const response = await this.retryWithBackoff(() => model.generateContent(prompt));
+        const text = response.response.text()?.trim() || "";
+        const parsed = this.extractJson(text);
+        if (!parsed) {
+          console.warn(`[Gemini] Empty/invalid JSON from ${modelName}, trying next...`);
+          continue;
+        }
+        const intent = this.INTENTS.includes(parsed.intent) ? parsed.intent : "other";
+        const action = this.ACTIONS.includes(parsed.action) ? parsed.action : "NONE";
+        const reply = this.cleanMarkdown(String(parsed.reply || ""));
+        if (!this.isValidReply(reply)) {
+          console.warn(`[Gemini] Garbled reply from ${modelName}: "${reply.substring(0, 50)}...", trying next...`);
+          continue;
+        }
+        return {
+          reply: reply || fallback.reply,
+          intent,
+          action,
+          proposed: parsed.proposed && typeof parsed.proposed === "object" ? parsed.proposed : {}
+        };
+      } catch (err) {
+        console.error(`[Gemini] Model ${modelName} failed:`, err?.status || err?.message || err);
+        continue;
+      }
     }
+    console.error("[Gemini] All models exhausted, returning fallback");
+    return fallback;
   }
   /** Robust JSON extraction: strips fences and grabs the outermost {...} */
   static extractJson(text) {
@@ -309,20 +332,10 @@ var GeminiService = class {
    */
   static buildConductorPrompt(ctx) {
     const t = ctx.tenant;
-    const branchDepts = t.branches.map((b) => {
-      const bDocs = t.doctors.filter((d) => d.branchId === b.id || d.branchName === b.name);
-      const depts = Array.from(new Set(t.services.filter((s2) => bDocs.some((d) => d.name === s2.doctorName || !s2.doctorName)).map((s2) => s2.department).filter(Boolean)));
-      return `${b.name}${b.address ? " - " + b.address : ""} \u2014 \u0627\u0644\u0623\u0642\u0633\u0627\u0645: ${depts.length ? depts.join(" \u060C ") : "\u0639\u0627\u0645"}`;
-    }).join("\n");
-    const servicesText = t.services.map((s2) => {
-      const doc = t.doctors.find((d) => d.name === s2.doctorName);
-      return `- ${s2.name} | \u0627\u0644\u0633\u0639\u0631: ${s2.price > 0 ? s2.price + " \u062F\u064A\u0646\u0627\u0631" : "\u062D\u0633\u0628 \u0627\u0644\u0641\u062D\u0635"} | \u0627\u0644\u0645\u062F\u0629: ${s2.durationMinutes || 30} \u062F\u0642\u064A\u0642\u0629 | \u0627\u0644\u0642\u0633\u0645: ${s2.department || "\u0639\u0627\u0645"}${s2.doctorName ? " | \u0627\u0644\u0637\u0628\u064A\u0628: " + s2.doctorName + (doc ? " (" + doc.branchName + ")" : "") : ""}`;
-    }).join("\n");
-    const doctorsText = t.doctors.map((d) => {
-      const days = (d.workingHours?.days || []).map((n) => ["\u0627\u0644\u0623\u062D\u062F", "\u0627\u0644\u0625\u062B\u0646\u064A\u0646", "\u0627\u0644\u062B\u0644\u0627\u062B\u0627\u0621", "\u0627\u0644\u0623\u0631\u0628\u0639\u0627\u0621", "\u0627\u0644\u062E\u0645\u064A\u0633", "\u0627\u0644\u062C\u0645\u0639\u0629", "\u0627\u0644\u0633\u0628\u062A"][n]).join("\u060C ");
-      return `- ${d.name} | \u0627\u0644\u0641\u0631\u0639: ${d.branchName || d.branchId} | \u0627\u0644\u062A\u062E\u0635\u0635: ${d.specialty || "\u0639\u0627\u0645"} | \u0627\u0644\u062F\u0648\u0627\u0645: ${days || "\u064A\u0648\u0645\u064A\u0627\u064B"} \u0645\u0646 ${d.workingHours?.startHour ?? 9} \u0625\u0644\u0649 ${d.workingHours?.endHour ?? 17}`;
-    }).join("\n");
-    const faqsText = (t.faqs || []).slice(0, 12).map((f) => `\u0633: ${f.question} | \u062C: ${f.answer}`).join("\n");
+    const branchList = t.branches.map((b) => `- ${b.name}${b.address ? " (" + b.address + ")" : ""}`).join("\n");
+    const servicesList = t.services.map((s2) => `- ${s2.name} | ${s2.price > 0 ? s2.price + " \u062F\u064A\u0646\u0627\u0631" : "\u062D\u0633\u0628 \u0627\u0644\u0641\u062D\u0635"} | ${s2.durationMinutes || 30} \u062F\u0642\u064A\u0642\u0629 | ${s2.department || "\u0639\u0627\u0645"}`).join("\n");
+    const doctorsList = t.doctors.map((d) => `- ${d.name} | ${d.branchName || d.branchId} | ${d.specialty || "\u0639\u0627\u0645"}`).join("\n");
+    const faqsText = (t.faqs || []).slice(0, 8).map((f) => `\u0633: ${f.question} | \u062C: ${f.answer}`).join("\n");
     const s = ctx.slots || {};
     const filled = [];
     if (s.branchName) filled.push(`\u0627\u0644\u0641\u0631\u0639: ${s.branchName}`);
@@ -331,90 +344,72 @@ var GeminiService = class {
     if (s.doctorName) filled.push(`\u0627\u0644\u0637\u0628\u064A\u0628: ${s.doctorName}`);
     if (s.date) filled.push(`\u0627\u0644\u062A\u0627\u0631\u064A\u062E: ${s.date}`);
     if (s.startTime) filled.push(`\u0627\u0644\u0648\u0642\u062A: ${s.startTime}`);
-    const stateLine = filled.length ? filled.join(" \u060C ") : "\u0644\u0627 \u064A\u0648\u062C\u062F \u0623\u064A \u0627\u062E\u062A\u064A\u0627\u0631 \u0628\u0639\u062F";
+    const stateLine = filled.length ? filled.join(" | ") : "\u0644\u0645 \u064A\u064F\u062D\u062F\u062F \u0634\u064A\u0621 \u0628\u0639\u062F";
     let proposalLine = "";
     if (ctx.pendingProposal && ctx.proposedSlot) {
-      proposalLine = `\u062A\u0645 \u0639\u0631\u0636 \u0627\u0642\u062A\u0631\u0627\u062D \u0645\u0648\u0639\u062F \u0639\u0644\u0649 \u0627\u0644\u0632\u0628\u0648\u0646: ${ctx.proposedSlot.date === getBaghdadTomorrow() ? "\u063A\u062F\u0627\u064B" : ctx.proposedSlot.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${ctx.proposedSlot.startTime} \u0645\u0639 ${ctx.proposedSlot.doctorName || s.doctorName || ""}`;
+      proposalLine = `\u0627\u0642\u062A\u0631\u0627\u062D \u0645\u0648\u0639\u062F: ${ctx.proposedSlot.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${ctx.proposedSlot.startTime} \u0645\u0639 ${ctx.proposedSlot.doctorName || s.doctorName || ""}`;
     }
-    const finalLine = ctx.awaitingFinalConfirm ? '\u0627\u0644\u0632\u0628\u0648\u0646 \u0648\u0627\u0641\u0642 \u0639\u0644\u0649 \u0627\u0644\u0648\u0642\u062A \u0648\u0623\u0646\u062A \u0627\u0644\u0622\u0646 \u0641\u064A \u0645\u0631\u062D\u0644\u0629 \u0627\u0644\u0645\u0644\u062E\u0635 \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u2014 \u0627\u0646\u062A\u0638\u0631 \u062A\u0623\u0643\u064A\u062F\u0647 \u0627\u0644\u0623\u062E\u064A\u0631 ("\u062A\u0645\u0627\u0645/\u0623\u0643\u064A\u062F/\u062B\u0628\u062A") \u0642\u0628\u0644 \u0637\u0644\u0628 \u0627\u0644\u062A\u062B\u0628\u064A\u062A.' : "";
-    const recentTurns = (ctx.recentMessages || []).slice(-6).map((turn) => `${turn.role === "user" ? "\u0627\u0644\u0632\u0628\u0648\u0646" : "\u0633\u0627\u0631\u0629"}: ${turn.text}`).join("\n");
+    const recentTurns = (ctx.recentMessages || []).slice(-4).map((turn) => `${turn.role === "user" ? "\u0627\u0644\u0645\u0631\u064A\u0636" : "\u0633\u0627\u0631\u0629"}: ${turn.text}`).join("\n");
     const toolNote = ctx.toolResult ? `
-\u0646\u062A\u064A\u062C\u0629 \u0639\u0645\u0644\u064A\u0629 \u0642\u0627\u0645 \u0628\u0647\u0627 \u0627\u0644\u0646\u0638\u0627\u0645 \u0644\u0644\u062A\u0648 (\u0627\u0633\u062A\u062E\u062F\u0645\u064A\u0647\u0627 \u062D\u0631\u0641\u064A\u0627\u064B \u0648\u0644\u0627 \u062A\u0628\u062F\u0644\u064A\u0647\u0627):
-${ctx.toolResult}` : "";
-    const recNote = ctx.recommendedService ? `\u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0645\u0642\u062A\u0631\u062D\u0629 \u0643\u062E\u064A\u0627\u0631 \u0633\u0631\u064A\u0639: ${ctx.recommendedService}` : "";
-    const optionsNote = ctx.optionsOffered && ctx.optionsOffered.length ? `\u0622\u062E\u0631 \u0642\u0627\u0626\u0645\u0629 \u0639\u0631\u0636\u062A\u0647\u0627 \u0639\u0644\u0649 \u0627\u0644\u0632\u0628\u0648\u0646 (\u0628\u0623\u0631\u0642\u0627\u0645): ${ctx.optionsOffered.map((o, i) => `${i + 1}. ${o}`).join(" | ")} \u2014 \u0625\u0630\u0627 \u0631\u062F \u0627\u0644\u0632\u0628\u0648\u0646 \u0628\u0631\u0642\u0645 \u0641\u0642\u0637\u060C \u0642\u0627\u0628\u0644\u064A\u0647 \u0628\u0647\u0630\u0647 \u0627\u0644\u0642\u0627\u0626\u0645\u0629.` : "";
-    const committedNote = ctx.bookingCommitted ? "\u0644\u0642\u062F \u062A\u0645 \u062A\u062B\u0628\u064A\u062A \u0627\u0644\u062D\u062C\u0632 \u0631\u0633\u0645\u064A\u0627\u064B \u0641\u064A \u0627\u0644\u0646\u0638\u0627\u0645 \u0642\u0628\u0644 \u0647\u0630\u0627 \u0627\u0644\u0631\u062F \u2014 \u0627\u0643\u062A\u0628\u064A \u0627\u0644\u0622\u0646 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0646\u0647\u0627\u0626\u064A\u0629 \u0627\u0644\u062F\u0627\u0641\u0626\u0629 (\u0627\u0644\u0648\u0635\u0644) \u0628\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u062D\u0631\u0641\u064A\u0627\u064B." : "";
+\u0646\u062A\u064A\u062C\u0629 \u0627\u0644\u0646\u0638\u0627\u0645: ${ctx.toolResult}` : "";
+    const optionsNote = ctx.optionsOffered?.length ? `
+\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A: ${ctx.optionsOffered.map((o, i) => `${i + 1}. ${o}`).join(" | ")}` : "";
+    const committedNote = ctx.bookingCommitted ? "\n\u062A\u0645 \u062A\u062B\u0628\u064A\u062A \u0627\u0644\u062D\u062C\u0632 \u2014 \u0627\u0643\u062A\u0641\u064A \u0631\u0633\u0627\u0644\u0629 \u062A\u0623\u0643\u064A\u062F \u0646\u0647\u0627\u0626\u064A\u0629 \u0628\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644." : "";
     return `
-\u0623\u0646\u062A\u0650 "\u0633\u0627\u0631\u0629 \u0627\u0644\u0631\u0642\u0645\u064A\u0629"\u060C \u0645\u0648\u0638\u0641\u0629 \u0627\u0633\u062A\u0642\u0628\u0627\u0644 \u062D\u0642\u064A\u0642\u064A\u0629 \u0641\u064A "${t.clinicName}".
-\u0627\u0644\u0622\u0646: ${this.getBaghdadDateString()} (\u0628\u062A\u0648\u0642\u064A\u062A \u0628\u063A\u062F\u0627\u062F).
+\u0623\u0646\u062A\u0650 "\u0633\u0627\u0631\u0629"\u060C \u0645\u0648\u0638\u0641\u0629 \u0627\u0633\u062A\u0642\u0628\u0627\u0644 \u0641\u064A "${t.clinicName}". \u0627\u0644\u0648\u0642\u062A: ${this.getBaghdadDateString()} \u0628\u062A\u0648\u0642\u064A\u062A \u0628\u063A\u062F\u0627\u062F.
 
-=== \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 (\u0627\u0644\u0645\u0635\u062F\u0631 \u0627\u0644\u0648\u062D\u064A\u062F \u2014 \u0644\u0627 \u062A\u062E\u062A\u0644\u0642\u064A \u0623\u064A \u0645\u0639\u0644\u0648\u0645\u0629 \u062E\u0627\u0631\u062C\u0647\u0627) ===
-\u0647\u0627\u062A\u0641 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631: ${t.secretaryPhone || "\u063A\u064A\u0631 \u0645\u062A\u0648\u0641\u0631"}
-\u0627\u0644\u0641\u0631\u0648\u0639:
-${branchDepts}
+=== \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u064A\u0627\u062F\u0629 ===
+\u0627\u0644\u0641\u0631\u0631\u0648\u0639:
+${branchList}
+
 \u0627\u0644\u062E\u062F\u0645\u0627\u062A:
-${servicesText}
-\u0627\u0644\u0623\u0637\u0628\u0627\u0621:
-${doctorsText}
-\u0627\u0644\u0623\u0633\u0626\u0644\u0629 \u0627\u0644\u0634\u0627\u0626\u0639\u0629:
-${faqsText || "\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u0633\u0626\u0644\u0629 \u0645\u0633\u062C\u0644\u0629"}
-${recNote}
+${servicesList}
 
-=== \u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u062C\u0632 \u0627\u0644\u062D\u0627\u0644\u064A\u0629 ===
+\u0627\u0644\u0623\u0637\u0628\u0627\u0621:
+${doctorsList}
+
+${faqsText ? `\u0623\u0633\u0626\u0644\u0629 \u0634\u0627\u0626\u0639\u0629:
+${faqsText}` : ""}
+
+=== \u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u062C\u0632 ===
 ${stateLine}
 ${proposalLine}
-${finalLine}
-\u0627\u0644\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062C\u0644: ${ctx.patientName || "\u0644\u0645 \u064A\u064F\u0639\u0637\u064E \u0628\u0639\u062F"}${ctx.isReturning ? " (\u0632\u0628\u0648\u0646 \u0639\u0627\u0626\u062F)" : ""}
+\u0627\u0633\u0645 \u0627\u0644\u0645\u0631\u064A\u0636: ${ctx.patientName || "\u0644\u0645 \u064A\u064F\u0633\u062C\u0644 \u0628\u0639\u062F"}
 ${optionsNote}
 ${toolNote}
 ${committedNote}
 
-=== \u0622\u062E\u0631 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 ===
+=== \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 ===
 ${recentTurns || "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629"}
+\u0627\u0644\u0645\u0631\u064A\u0636: "${ctx.userMessage}"
 
-\u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0632\u0628\u0648\u0646 \u0627\u0644\u0623\u062E\u064A\u0631\u0629: "${ctx.userMessage}"
+=== \u0627\u0644\u0642\u0648\u0627\u0639\u062F ===
+- \u062A\u062D\u062F\u062B\u064A \u0628\u0627\u0644\u0639\u0631\u0627\u0642\u064A \u0627\u0644\u0639\u0641\u0648\u064A\u060C \u0628\u062F\u0648\u0646 Markdown \u0623\u0648 \u0646\u062C\u0648\u0645 \u0623\u0648 \u0631\u0645\u0648\u0632.
+- \u0644\u0627 \u062A\u062E\u062A\u0644\u0642\u064A \u0641\u0631\u0639 \u0623\u0648 \u062E\u062F\u0645\u0629 \u0623\u0648 \u0637\u0628\u064A\u0628\u0627\u064B \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F \u0641\u064A \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0623\u0639\u0644\u0627\u0647.
+- \u0623\u064A \u0633\u0624\u0627\u0644 \u062C\u0627\u0646\u0628\u064A (\u0633\u0639\u0631\u060C \u0645\u0648\u0642\u0639\u060C \u062F\u0648\u0627\u0645): \u0623\u062C\u064A\u0628\u064A \u0628\u0627\u062E\u062A\u0635\u0627\u0631 \u062B\u0645 \u0627\u0631\u062C\u0639\u064A \u0644\u0644\u062D\u062C\u0632.
+- \u0639\u0646\u062F \u0627\u0644\u063A\u0636\u0628: \u0627\u0639\u062A\u0630\u0627\u0631 \u0642\u0635\u064A\u0631 \u062B\u0645 \u0623\u0639\u064A\u062F\u064A \u0627\u0644\u0633\u0624\u0627\u0644 \u0628\u0647\u062F\u0648\u0621.
+- \u0644\u0627 \u062A\u0643\u0631\u0631\u064A \u0646\u0641\u0633 \u0627\u0644\u0635\u064A\u063A\u0629 \u0641\u064A \u0643\u0644 \u0631\u062F.
 
-=== \u0634\u062E\u0635\u064A\u062A\u0643 \u0648\u0642\u0648\u0627\u0639\u062F \u0627\u0644\u0631\u062F ===
-1. \u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0639\u0641\u0648\u064A\u0629 \u0645\u0647\u0630\u0628\u0629\u060C \u0643\u0644\u0645\u0627\u062A \u0642\u0635\u064A\u0631\u0629 \u0648\u0637\u0628\u064A\u0639\u064A\u0629\u060C \u0628\u062F\u0648\u0646 Markdown \u0648\u0628\u062F\u0648\u0646 \u062A\u0643\u0631\u0627\u0631 \u062C\u0645\u0644\u0629 \u062E\u062A\u0627\u0645\u064A\u0629 \u0623\u0648 \u0627\u0641\u062A\u062A\u0627\u062D\u064A\u0629 \u2014 \u0643\u0644 \u0631\u062F \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u062E\u062A\u0644\u0641 \u0639\u0646 \u0633\u0627\u0628\u0642\u0647 \u0648\u0644\u0627 \u062A\u0643\u0631\u0631\u064A \u0646\u0641\u0633 \u0627\u0644\u0635\u064A\u063A\u0629.
-2. \u0644\u0627 \u062A\u062E\u062A\u0644\u0642\u064A \u0623\u0628\u062F\u0627\u064B \u0641\u0631\u0639\u0627\u064B \u0623\u0648 \u062E\u062F\u0645\u0629 \u0623\u0648 \u0637\u0628\u064A\u0628\u0627\u064B \u0623\u0648 \u0633\u0639\u0631\u0627\u064B \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F \u0641\u064A "\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u0631\u0633\u0645\u064A\u0629" \u0623\u0639\u0644\u0627\u0647 \u2014 \u0627\u0639\u062A\u0645\u062F\u064A\u0647\u0627 \u062D\u0635\u0631\u0627\u064B.
-3. \u0644\u0627 \u0632\u064A\u0627\u0631\u0627\u062A \u0645\u0646\u0632\u0644\u064A\u0629\u060C \u0644\u0627 \u062A\u0643\u0633\u064A/\u062A\u0648\u0635\u064A\u0644\u060C \u0644\u0627 \u0642\u0628\u0648\u0644 \u0647\u062F\u0627\u064A\u0627 \u0623\u0648 \u0628\u0642\u0634\u064A\u0634 \u2014 \u0627\u0639\u062A\u0630\u0631\u064A \u0628\u0644\u0637\u0641 \u0648\u0627\u0631\u062C\u0639\u064A \u0627\u0644\u0645\u0648\u0636\u0648\u0639 \u0644\u0644\u062D\u062C\u0632.
-4. \u0639\u0646\u062F \u0627\u0644\u063A\u0636\u0628 \u0623\u0648 \u0627\u0644\u0634\u062A\u0627\u0626\u0645 \u0623\u0648 \u0627\u0644\u0627\u0639\u062A\u0631\u0627\u0636: \u0627\u0639\u062A\u0630\u0627\u0631 \u0642\u0635\u064A\u0631 \u0635\u0627\u062F\u0642 \u0628\u062F\u0648\u0646 \u062C\u062F\u0627\u0644\u060C \u062B\u0645 \u0623\u0639\u064A\u062F\u064A \u0627\u0644\u0633\u0624\u0627\u0644 \u0627\u0644\u062D\u0627\u0644\u064A \u0628\u0647\u062F\u0648\u0621.
-5. \u0623\u064A \u0633\u0624\u0627\u0644 \u062C\u0627\u0646\u0628\u064A (\u0633\u0639\u0631\u060C \u0645\u0648\u0642\u0639\u060C \u062F\u0648\u0627\u0645\u060C \u062F\u0643\u062A\u0648\u0631\u060C \u062E\u062F\u0645\u0629\u060C \u0623\u064A \u0627\u0633\u062A\u0641\u0633\u0627\u0631 \u0639\u0646 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0648\u0627\u0644\u062D\u062C\u0632): \u0623\u062C\u064A\u0628\u064A \u0628\u0627\u062E\u062A\u0635\u0627\u0631 \u062B\u0645 \u0627\u0631\u062C\u0639\u064A \u0644\u0645\u0648\u0636\u0648\u0639 \u0627\u0644\u062D\u062C\u0632 \u0628\u0637\u0631\u064A\u0642\u0629 \u0645\u062E\u062A\u0644\u0641\u0629 \u0643\u0644 \u0645\u0631\u0629 (\u0644\u0627 \u062A\u0643\u0631\u0631\u064A \u0646\u0641\u0633 \u0627\u0644\u062C\u0645\u0644\u0629).
-6. \u0625\u0630\u0627 \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u063A\u0627\u0645\u0636\u0629 ("\u061F" \u0623\u0648 \u0625\u064A\u0645\u0648\u062C\u064A \u0641\u0642\u0637 \u0623\u0648 \u0643\u0644\u0645\u0629 \u0648\u062D\u064A\u062F\u0629): \u0627\u0639\u062A\u0630\u0631\u064A \u0628\u0644\u0637\u0641 \u0648\u0627\u0637\u0644\u0628\u064A \u062A\u0648\u0636\u064A\u062D \u0627\u0644\u0633\u0624\u0627\u0644 \u0627\u0644\u062D\u0627\u0644\u064A \u0628\u0644\u0627 \u0627\u0646\u0632\u0639\u0627\u062C.
-7. \u0644\u0627 \u062A\u0633\u062A\u062E\u062F\u0645\u064A "\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A" \u0623\u0648 "\u0643\u0644\u064A\u0644\u064A \u0634\u0646\u0648" \u0623\u0648 "\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0644\u064A \u062A\u062D\u0628 \u0646\u0648\u0636\u062D\u0647\u0627" \u0643\u062C\u0645\u0644 \u0627\u0641\u062A\u062A\u0627\u062D\u064A\u0629 \u0623\u0648 \u062E\u062A\u0627\u0645\u064A\u0629 \u2014 \u0627\u062E\u062A\u0627\u0631\u064A \u0635\u064A\u063A\u0629 \u0645\u062E\u062A\u0644\u0641\u0629 \u0643\u0644 \u0645\u0631\u0629.
+=== \u0627\u0644\u0631\u0648\u062A\u064A\u0646 ===
+1. \u0627\u0644\u0641\u0631\u0639 \u2192 \u0627\u0644\u0642\u0633\u0645 \u2192 \u0627\u0644\u062E\u062F\u0645\u0629 \u2192 \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u2192 \u0627\u0644\u0627\u0633\u0645 \u2192 \u0645\u0644\u062E\u0635 \u2192 \u062A\u0623\u0643\u064A\u062F \u2192 \u062A\u062B\u0628\u064A\u062A
 
-=== \u0631\u0648\u062A\u064A\u0646 \u0627\u0644\u062D\u062C\u0632 (\u0646\u0641\u0630\u064A\u0647 \u0628\u0646\u0641\u0633\u0643 \u0628\u0645\u0631\u0648\u0646\u0629) ===
-1. \u0625\u0630\u0627 \u0644\u0645 \u064A\u064F\u062D\u062F\u062F \u0627\u0644\u0641\u0631\u0639 \u0628\u0639\u062F: \u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0632\u0628\u0648\u0646 \u0623\u064A \u0641\u0631\u0639 \u064A\u0641\u0636\u0644 (\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0623\u0639\u0644\u0627\u0647 \u0628\u0623\u0642\u0633\u0627\u0645\u0647\u0627).
-2. \u0628\u0639\u062F \u0627\u0644\u0641\u0631\u0639: \u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0642\u0633\u0645 \u0625\u0630\u0627 \u0643\u0627\u0646 \u0645\u0637\u0644\u0648\u0628\u0627\u064B.
-3. \u0628\u0639\u062F \u0627\u0644\u0641\u0631\u0639 \u0648\u0627\u0644\u0642\u0633\u0645: \u0627\u0642\u062A\u0631\u062D\u064A \u062D\u062C\u0632 \u0627\u0644\u0643\u0634\u0641\u064A\u0629/\u0627\u0644\u0641\u062D\u0635 \u0627\u0644\u0639\u0627\u0645 (\u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0645\u0642\u062A\u0631\u062D\u0629 \u0623\u0639\u0644\u0627\u0647 \u0625\u0646 \u0648\u062C\u062F\u062A) \u0639\u0634\u0627\u0646 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u064A\u062D\u062F\u062F \u0627\u062D\u062A\u064A\u0627\u062C\u0647 \u0628\u0627\u0644\u0636\u0628\u0637\u060C \u0623\u0648 \u0627\u0639\u0631\u0636\u064A \u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062E\u062F\u0645\u0627\u062A.
-4. \u0628\u0639\u062F \u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u062E\u062F\u0645\u0629: \u0627\u0637\u0644\u0628\u064A action "GET_SLOTS" \u0644\u064A\u062C\u0644\u0628 \u0644\u0643 \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u062D\u0642\u064A\u0642\u064A\u0629\u060C \u062B\u0645 \u0627\u0639\u0631\u0636\u064A \u0623\u0642\u0631\u0628 \u0645\u0648\u0639\u062F (\u0627\u0644\u064A\u0648\u0645 \u0648\u0627\u0644\u0633\u0627\u0639\u0629 \u0648\u0627\u0644\u0637\u0628\u064A\u0628) \u0648\u0627\u0633\u0623\u0644\u064A "\u064A\u0646\u0627\u0633\u0628\u0643\u061F".
-5. \u0628\u0639\u062F \u0645\u0648\u0627\u0641\u0642\u0629 \u0627\u0644\u0632\u0628\u0648\u0646 \u0639\u0644\u0649 \u0627\u0644\u0648\u0642\u062A: \u0625\u0630\u0627 \u0645\u0627 \u0646\u0639\u0631\u0641 \u0627\u0633\u0645\u0647 \u0627\u0633\u0623\u0644\u064A\u0647 \u0627\u0644\u0627\u0633\u0645 \u0627\u0644\u062B\u0646\u0627\u0626\u064A\u061B \u0628\u0639\u062F\u0647\u0627 \u0627\u0639\u0631\u0636\u064A \u0645\u0644\u062E\u0635 \u0627\u0644\u062D\u062C\u0632 \u0627\u0644\u0643\u0627\u0645\u0644 \u0648\u0627\u0633\u0623\u0644\u064A "\u0646\u062B\u0628\u062A \u0643\u0644\u0634\u064A \u062A\u0645\u0627\u0645\u061F".
-6. \u0639\u0646\u062F \u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0632\u0628\u0648\u0646 \u0627\u0644\u0646\u0647\u0627\u0626\u064A (\u062A\u0645\u0627\u0645/\u0623\u0643\u064A\u062F/\u062B\u0628\u062A/\u0646\u0639\u0645): \u0627\u0637\u0644\u0628\u064A action "COMMIT_BOOKING".
-7. \u0639\u0646\u062F\u0645\u0627 \u064A\u0628\u0644\u063A\u0643 \u0627\u0644\u0646\u0638\u0627\u0645 \u0628\u0627\u0644\u062A\u062B\u0628\u064A\u062A (bookingCommitted): \u0627\u0643\u062A\u0628\u064A \u0648\u0635\u0644 \u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0627\u0644\u062F\u0627\u0641\u0626 \u0628\u0643\u0644 \u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 + \u062A\u0639\u0644\u064A\u0645\u0627\u062A \u0645\u0627 \u0642\u0628\u0644 \u0627\u0644\u062D\u0636\u0648\u0631.
-
-=== \u0642\u0631\u0627\u0631\u0643 \u0644\u0647\u0630\u0647 \u0627\u0644\u0631\u0633\u0627\u0644\u0629: \u0623\u0631\u062C\u0639\u064A JSON \u0641\u0642\u0637 ===
+=== \u0627\u0644\u0631\u062F JSON \u0641\u0642\u0637 ===
 {
-  "reply": "\u0631\u062F\u0643 \u0627\u0644\u0643\u0627\u0645\u0644 \u0644\u0647\u0630\u0647 \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u0628\u0627\u0644\u0639\u0631\u0627\u0642\u064A (\u0625\u0630\u0627 action \u063A\u064A\u0631 NONE \u064A\u0645\u0643\u0646 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0631\u062F\u0627\u064B \u0627\u0646\u062A\u0642\u0627\u0644\u064A\u0627\u064B \u0642\u0635\u064A\u0631\u0627\u064B)",
+  "reply": "\u0631\u062F\u0643 \u0628\u0627\u0644\u0639\u0631\u0627\u0642\u064A",
   "intent": "answer | side_question | confirm_slot | decline_slot | confirm_booking | decline_booking | cancel | modify | human | greeting | other",
   "action": "NONE | GET_SLOTS | LIST_SERVICES | COMMIT_BOOKING | RESET",
   "proposed": {
-    "branchName": "\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0630\u064A \u0627\u062E\u062A\u0627\u0631\u0647 \u0627\u0644\u0632\u0628\u0648\u0646 \u0628\u0646\u0635\u0647 \u0623\u0648 null",
-    "department": "\u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0630\u064A \u0627\u062E\u062A\u0627\u0631\u0647 \u0623\u0648 null",
-    "serviceName": "\u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u062A\u064A \u0627\u062E\u062A\u0627\u0631\u0647\u0627 \u0623\u0648 null",
-    "doctorName": "\u0627\u0644\u0637\u0628\u064A\u0628 \u0627\u0644\u0630\u064A \u0627\u062E\u062A\u0627\u0631\u0647 \u0623\u0648 null",
-    "date": "\u0627\u0644\u064A\u0648\u0645 \u0623\u0648 \u0627\u0644\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0630\u064A \u0630\u0643\u0631\u0647 (\u0628\u0627\u062C\u0631\u060C \u0639\u0642\u0628 \u0628\u0627\u062C\u0631\u060C YYYY-MM-DD) \u0623\u0648 null",
-    "time": "\u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0630\u064A \u0630\u0643\u0631\u0647 (HH:mm \u0623\u0648 \u0627\u0644\u0639\u0635\u0631/\u0627\u0644\u0638\u0647\u0631...) \u0623\u0648 null",
-    "patientName": "\u0627\u0633\u0645 \u0627\u0644\u0632\u0628\u0648\u0646 \u0625\u0630\u0627 \u0623\u0639\u0637\u0627\u0647 \u0623\u0648 null"
+    "branchName": null,
+    "department": null,
+    "serviceName": null,
+    "doctorName": null,
+    "date": null,
+    "time": null,
+    "patientName": null
   }
 }
 
-\u0642\u0648\u0627\u0639\u062F \u0627\u0644\u0642\u0631\u0627\u0631:
-- \u0623\u064A \u0643\u064A\u0627\u0646 \u0641\u064A proposed \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u0637\u0627\u0628\u0642\u0627\u064B \u0641\u0639\u0644\u064A\u0627\u064B \u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 \u0623\u0639\u0644\u0627\u0647 (\u0628\u0627\u0644\u062A\u0633\u0627\u0645\u062D \u0627\u0644\u0625\u0645\u0644\u0627\u0626\u064A).
-- side_question: \u0627\u0644\u0633\u0624\u0627\u0644 \u0644\u0627 \u064A\u062E\u0635 \u0627\u062E\u062A\u064A\u0627\u0631\u0627\u064B \u0645\u0646 \u0631\u0648\u062A\u064A\u0646 \u0627\u0644\u062D\u062C\u0632 \u2192 \u0627\u0644\u0631\u062F \u0641\u064A\u0647 \u0627\u0644\u062C\u0648\u0627\u0628 + \u0627\u0644\u0639\u0648\u062F\u0629 \u0644\u0646\u0641\u0633 \u0627\u0644\u0633\u0624\u0627\u0644\u060C action: NONE.
-- confirm_slot: \u0648\u0627\u0641\u0642 \u0639\u0644\u0649 \u0627\u0644\u0648\u0642\u062A (\u0645\u0648\u0627\u0641\u0642/\u064A\u0646\u0627\u0633\u0628\u0646\u064A/\u062B\u0628\u062A \u0627\u0644\u0648\u0642\u062A/\u0646\u0639\u0645). confirm_booking: \u062A\u0623\u0643\u064A\u062F \u0646\u0647\u0627\u0626\u064A \u0628\u0639\u062F \u0639\u0631\u0636 \u0627\u0644\u0645\u0644\u062E\u0635 (\u062A\u0645\u0627\u0645/\u0623\u0643\u064A\u062F/\u062B\u0628\u062A). decline_slot/decline_booking: \u0631\u0641\u0636.
-- GET_SLOTS: \u0641\u0642\u0637 \u0639\u0646\u062F\u0645\u0627 \u062A\u0643\u0648\u0646 \u0627\u0644\u062E\u062F\u0645\u0629 \u0645\u062D\u062F\u062F\u0629 \u0648\u0646\u062D\u062A\u0627\u062C \u0645\u0648\u0627\u0639\u064A\u062F \u062D\u0642\u064A\u0642\u064A\u0629. LIST_SERVICES: \u0639\u0646\u062F\u0645\u0627 \u064A\u0637\u0644\u0628 \u0627\u0644\u0642\u0627\u0626\u0645\u0629. COMMIT_BOOKING: \u0641\u0642\u0637 \u0639\u0646\u062F \u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0627\u0644\u0643\u0627\u0645\u0644. RESET: \u0639\u0646\u062F\u0645\u0627 \u064A\u0631\u064A\u062F \u062A\u0635\u0641\u064A\u0631 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0623\u0648 \u062D\u062C\u0632 \u062C\u062F\u064A\u062F \u0643\u0627\u0645\u0644.
-- \u0644\u0627 \u062A\u0631\u062C\u0639 "undefined" \u0623\u0648 \u0643\u0644\u0645\u0627\u062A \u0648\u0647\u0645\u064A\u0629 \u0641\u064A proposed \u2014 \u0641\u0642\u0637 null \u0623\u0648 \u0642\u064A\u0645 \u062D\u0642\u064A\u0642\u064A\u0629.
-- \u26A0\uFE0F \u062A\u062D\u0630\u064A\u0631 \u0635\u0627\u0631\u0645: \u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0641\u0631\u0639 \u0623\u0648 \u0627\u0644\u0642\u0633\u0645 \u0623\u0648 \u0627\u0644\u062E\u062F\u0645\u0629 \u0644\u064A\u0633 \u062A\u0623\u0643\u064A\u062F\u0627\u064B \u0646\u0647\u0627\u0626\u064A\u0627\u064B \u0644\u0644\u062D\u062C\u0632. \u0644\u0627 \u062A\u0637\u0644\u0628\u064A action: "COMMIT_BOOKING" \u0625\u0637\u0644\u0627\u0642\u0627\u064B \u0625\u0644\u0627 \u0628\u0639\u062F \u0627\u0644\u0638\u0631\u0648\u0641 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u0645\u0639\u0627\u064B: (1) \u0627\u0644\u062E\u062F\u0645\u0629 \u0645\u062D\u062F\u062F\u0629\u060C (2) \u0627\u0644\u0637\u0628\u064A\u0628 \u0645\u062D\u062F\u062F\u060C (3) \u0627\u0644\u0648\u0642\u062A \u0645\u062D\u062F\u062F\u060C (4) \u0627\u0644\u0627\u0633\u0645 \u0645\u0633\u062C\u0644\u060C (5) \u0645\u0644\u062E\u0635 \u0627\u0644\u062D\u062C\u0632 \u0639\u064F\u0631\u0636 \u0639\u0644\u0649 \u0627\u0644\u0632\u0628\u0648\u0646\u060C (6) \u0627\u0644\u0632\u0628\u0648\u0646 \u0642\u0627\u0644 \u0635\u0631\u0627\u062D\u0629 "\u0646\u0639\u0645 \u062B\u0628\u062A" \u0623\u0648 "\u0623\u0643\u064A\u062F" \u0623\u0648 "\u062A\u0645\u0627\u0645". \u0623\u064A \u062A\u062B\u0628\u064A\u062A \u0645\u0628\u0643\u0631 \u064A\u0639\u062A\u0628\u0631 \u062E\u0637\u0623 \u0641\u0627\u062F\u062D.
+\u26A0\uFE0F COMMIT_BOOKING \u0641\u0642\u0637 \u0628\u0639\u062F: \u0627\u0644\u062E\u062F\u0645\u0629 + \u0627\u0644\u0637\u0628\u064A\u0628 + \u0627\u0644\u0648\u0642\u062A + \u0627\u0644\u0627\u0633\u0645 + \u0645\u0644\u062E\u0635 + \u062A\u0623\u0643\u064A\u062F \u0635\u0631\u064A\u062D \u0645\u0646 \u0627\u0644\u0645\u0631\u064A\u0636.
 `;
   }
 };
@@ -509,6 +504,28 @@ var AtomicLockManager = class {
     }
   }
 };
+
+// src/utils/baghdad-time.ts
+function getBaghdadNow() {
+  return new Date((/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "Asia/Baghdad" }));
+}
+function formatDate(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+function getBaghdadToday() {
+  return formatDate(getBaghdadNow());
+}
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+function getBaghdadTomorrow() {
+  return formatDate(addDays(getBaghdadNow(), 1));
+}
 
 // src/services/slot-generator.ts
 var SlotGenerator = class {
@@ -774,6 +791,22 @@ var GoogleSheetsService = class {
       }
     } catch (saErr) {
       console.warn("[File Service Account Auth Warning]:", saErr);
+    }
+    try {
+      if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_REFRESH_TOKEN) {
+        const oauth2 = new google.auth.OAuth2(
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_CLIENT_SECRET
+        );
+        oauth2.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+        const tokenResponse = await oauth2.getAccessToken();
+        if (tokenResponse.token) {
+          console.log("[OAuth2] Successfully obtained access token");
+          return tokenResponse.token;
+        }
+      }
+    } catch (oauthErr) {
+      console.warn("[OAuth2 Auth Warning]:", oauthErr);
     }
     return null;
   }

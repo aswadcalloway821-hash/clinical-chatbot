@@ -108,6 +108,24 @@ export class GoogleSheetsService {
       console.warn('[File Service Account Auth Warning]:', saErr);
     }
 
+    // 3. Try OAuth2 Refresh Token (from .env credentials)
+    try {
+      if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_REFRESH_TOKEN) {
+        const oauth2 = new google.auth.OAuth2(
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_CLIENT_SECRET
+        );
+        oauth2.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+        const tokenResponse = await oauth2.getAccessToken();
+        if (tokenResponse.token) {
+          console.log('[OAuth2] Successfully obtained access token');
+          return tokenResponse.token;
+        }
+      }
+    } catch (oauthErr) {
+      console.warn('[OAuth2 Auth Warning]:', oauthErr);
+    }
+
     return null;
   }
 

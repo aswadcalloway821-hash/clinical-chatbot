@@ -90,31 +90,35 @@ export class GeminiService {
 }
 `;
 
-    try {
-      const modelName = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        systemInstruction: this.getSystemInstruction(tenant),
-        generationConfig: { responseMimeType: 'application/json' }
-      });
-      const response = await model.generateContent(prompt);
+    const modelsToTry = [
+      process.env.GEMINI_MODEL || this.MODEL_FALLBACKS[0],
+      ...this.MODEL_FALLBACKS.filter(m => m !== (process.env.GEMINI_MODEL || this.MODEL_FALLBACKS[0]))
+    ];
 
-      const text = response.response.text()?.trim() || '{}';
-      const parsed = JSON.parse(text);
+    for (const modelName of modelsToTry) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: this.getSystemInstruction(tenant),
+          generationConfig: { responseMimeType: 'application/json' }
+        });
+        const response = await this.retryWithBackoff(() => model.generateContent(prompt));
 
-      return {
-        intent: parsed.intent || 'UNKNOWN',
-        entities: parsed.entities || {},
-        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.8
-      };
-    } catch (error) {
-      console.error('Gemini NLU Error:', error);
-      return {
-        intent: 'UNKNOWN',
-        entities: {},
-        confidence: 0.0
-      };
+        const text = response.response.text()?.trim() || '{}';
+        const parsed = JSON.parse(text);
+
+        return {
+          intent: parsed.intent || 'UNKNOWN',
+          entities: parsed.entities || {},
+          confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.8
+        };
+      } catch (error) {
+        console.error(`[Gemini NLU] Model ${modelName} failed:`, error);
+        continue;
+      }
     }
+
+    return { intent: 'UNKNOWN', entities: {}, confidence: 0.0 };
   }
 
   /**
@@ -262,6 +266,45 @@ export class GeminiService {
   public static readonly INTENTS = ['answer', 'side_question', 'confirm_slot', 'decline_slot', 'confirm_booking', 'decline_booking', 'cancel', 'modify', 'human', 'greeting', 'other'] as const;
   public static readonly ACTIONS = ['NONE', 'GET_SLOTS', 'LIST_SERVICES', 'COMMIT_BOOKING', 'RESET'] as const;
 
+  /** Model fallback list: try primary, then fallbacks if overloaded (503) */
+  private static readonly MODEL_FALLBACKS = [
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash'
+  ];
+
+  /** Retry with exponential backoff for transient errors (503, 429, 500) */
+  private static async retryWithBackoff<T>(
+    fn: () => Promise<T>,
+    maxRetries = 2,
+    baseDelayMs = 1000
+  ): Promise<T> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        const isTransient = err?.status === 503 || err?.status === 429 || err?.status === 500;
+        if (!isTransient || attempt === maxRetries) throw err;
+        const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 500;
+        console.warn(`[Gemini Retry] Attempt ${attempt + 1} failed (${err?.status}), retrying in ${Math.round(delay)}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    throw new Error('Unreachable');
+  }
+
+  /** Validate reply is not garbled — must contain real Arabic words, not random numbers */
+  private static isValidReply(reply: string): boolean {
+    if (!reply || reply.length < 5) return false;
+    // Check for garbled patterns: starts with phone number, mostly numbers, or gibberish
+    if (/^\d{10,}/.test(reply)) return false;
+    if (/^[0-9\s:،,.-]+$/.test(reply)) return false;
+    // Check it contains at least some Arabic characters
+    const arabicChars = (reply.match(/[\u0600-\u06FF]/g) || []).length;
+    if (arabicChars < 3) return false;
+    return true;
+  }
+
   public static async conductTurn(ctx: ConductTurnContext): Promise<ConductTurnResult> {
     const prompt = this.buildConductorPrompt(ctx);
     const fallback: ConductTurnResult = {
@@ -271,30 +314,51 @@ export class GeminiService {
       proposed: {}
     };
 
-    try {
-      const modelName = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        systemInstruction: this.getSystemInstruction(ctx.tenant),
-        generationConfig: { responseMimeType: 'application/json' }
-      });
-      const response = await model.generateContent(prompt);
-      const text = response.response.text()?.trim() || '';
-      const parsed = this.extractJson(text);
-      if (!parsed) return fallback;
+    const modelsToTry = [
+      process.env.GEMINI_MODEL || this.MODEL_FALLBACKS[0],
+      ...this.MODEL_FALLBACKS.filter(m => m !== (process.env.GEMINI_MODEL || this.MODEL_FALLBACKS[0]))
+    ];
 
-      const intent = this.INTENTS.includes(parsed.intent) ? parsed.intent : 'other';
-      const action = this.ACTIONS.includes(parsed.action) ? parsed.action : 'NONE';
-      return {
-        reply: this.cleanMarkdown(String(parsed.reply || '')) || fallback.reply,
-        intent,
-        action,
-        proposed: (parsed.proposed && typeof parsed.proposed === 'object') ? parsed.proposed : {}
-      };
-    } catch (err) {
-      console.error('Gemini Conductor Error:', err);
-      return fallback;
+    for (const modelName of modelsToTry) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: this.getSystemInstruction(ctx.tenant),
+          generationConfig: { responseMimeType: 'application/json' }
+        });
+
+        const response = await this.retryWithBackoff(() => model.generateContent(prompt));
+        const text = response.response.text()?.trim() || '';
+        const parsed = this.extractJson(text);
+        if (!parsed) {
+          console.warn(`[Gemini] Empty/invalid JSON from ${modelName}, trying next...`);
+          continue;
+        }
+
+        const intent = this.INTENTS.includes(parsed.intent) ? parsed.intent : 'other';
+        const action = this.ACTIONS.includes(parsed.action) ? parsed.action : 'NONE';
+        const reply = this.cleanMarkdown(String(parsed.reply || ''));
+
+        // Validate reply is not garbled
+        if (!this.isValidReply(reply)) {
+          console.warn(`[Gemini] Garbled reply from ${modelName}: "${reply.substring(0, 50)}...", trying next...`);
+          continue;
+        }
+
+        return {
+          reply: reply || fallback.reply,
+          intent,
+          action,
+          proposed: (parsed.proposed && typeof parsed.proposed === 'object') ? parsed.proposed : {}
+        };
+      } catch (err: any) {
+        console.error(`[Gemini] Model ${modelName} failed:`, err?.status || err?.message || err);
+        continue;
+      }
     }
+
+    console.error('[Gemini] All models exhausted, returning fallback');
+    return fallback;
   }
 
   /** Robust JSON extraction: strips fences and grabs the outermost {...} */
@@ -318,23 +382,13 @@ export class GeminiService {
   private static buildConductorPrompt(ctx: ConductTurnContext): string {
     const t = ctx.tenant;
 
-    const branchDepts = t.branches.map(b => {
-      const bDocs = t.doctors.filter(d => d.branchId === b.id || d.branchName === b.name);
-      const depts = Array.from(new Set(t.services.filter(s => bDocs.some(d => d.name === s.doctorName || !s.doctorName)).map(s => s.department).filter(Boolean)));
-      return `${b.name}${b.address ? ' - ' + b.address : ''} — الأقسام: ${depts.length ? depts.join(' ، ') : 'عام'}`;
-    }).join('\n');
+    const branchList = t.branches.map(b => `- ${b.name}${b.address ? ' (' + b.address + ')' : ''}`).join('\n');
 
-    const servicesText = t.services.map(s => {
-      const doc = t.doctors.find(d => d.name === s.doctorName);
-      return `- ${s.name} | السعر: ${s.price > 0 ? s.price + ' دينار' : 'حسب الفحص'} | المدة: ${s.durationMinutes || 30} دقيقة | القسم: ${s.department || 'عام'}${s.doctorName ? ' | الطبيب: ' + s.doctorName + (doc ? ' (' + doc.branchName + ')' : '') : ''}`;
-    }).join('\n');
+    const servicesList = t.services.map(s => `- ${s.name} | ${s.price > 0 ? s.price + ' دينار' : 'حسب الفحص'} | ${s.durationMinutes || 30} دقيقة | ${s.department || 'عام'}`).join('\n');
 
-    const doctorsText = t.doctors.map(d => {
-      const days = (d.workingHours?.days || []).map(n => ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'][n]).join('، ');
-      return `- ${d.name} | الفرع: ${d.branchName || d.branchId} | التخصص: ${d.specialty || 'عام'} | الدوام: ${days || 'يومياً'} من ${d.workingHours?.startHour ?? 9} إلى ${d.workingHours?.endHour ?? 17}`;
-    }).join('\n');
+    const doctorsList = t.doctors.map(d => `- ${d.name} | ${d.branchName || d.branchId} | ${d.specialty || 'عام'}`).join('\n');
 
-    const faqsText = (t.faqs || []).slice(0, 12).map(f => `س: ${f.question} | ج: ${f.answer}`).join('\n');
+    const faqsText = (t.faqs || []).slice(0, 8).map(f => `س: ${f.question} | ج: ${f.answer}`).join('\n');
 
     // Current state (what the patient has already provided)
     const s = ctx.slots || {};
@@ -345,101 +399,73 @@ export class GeminiService {
     if (s.doctorName) filled.push(`الطبيب: ${s.doctorName}`);
     if (s.date) filled.push(`التاريخ: ${s.date}`);
     if (s.startTime) filled.push(`الوقت: ${s.startTime}`);
-    const stateLine = filled.length ? filled.join(' ، ') : 'لا يوجد أي اختيار بعد';
+    const stateLine = filled.length ? filled.join(' | ') : 'لم يُحدد شيء بعد';
 
     let proposalLine = '';
     if (ctx.pendingProposal && ctx.proposedSlot) {
-      proposalLine = `تم عرض اقتراح موعد على الزبون: ${ctx.proposedSlot.date === getBaghdadTomorrow() ? 'غداً' : ctx.proposedSlot.date} الساعة ${ctx.proposedSlot.startTime} مع ${ctx.proposedSlot.doctorName || s.doctorName || ''}`;
+      proposalLine = `اقتراح موعد: ${ctx.proposedSlot.date} الساعة ${ctx.proposedSlot.startTime} مع ${ctx.proposedSlot.doctorName || s.doctorName || ''}`;
     }
-    const finalLine = ctx.awaitingFinalConfirm ? 'الزبون وافق على الوقت وأنت الآن في مرحلة الملخص النهائي — انتظر تأكيده الأخير ("تمام/أكيد/ثبت") قبل طلب التثبيت.' : '';
 
-    const recentTurns = (ctx.recentMessages || []).slice(-6).map(turn => `${turn.role === 'user' ? 'الزبون' : 'سارة'}: ${turn.text}`).join('\n');
+    const recentTurns = (ctx.recentMessages || []).slice(-4).map(turn => `${turn.role === 'user' ? 'المريض' : 'سارة'}: ${turn.text}`).join('\n');
 
-    const toolNote = ctx.toolResult
-      ? `\nنتيجة عملية قام بها النظام للتو (استخدميها حرفياً ولا تبدليها):\n${ctx.toolResult}`
-      : '';
-
-    const recNote = ctx.recommendedService ? `الخدمة المقترحة كخيار سريع: ${ctx.recommendedService}` : '';
-
-    const optionsNote = ctx.optionsOffered && ctx.optionsOffered.length
-      ? `آخر قائمة عرضتها على الزبون (بأرقام): ${ctx.optionsOffered.map((o, i) => `${i + 1}. ${o}`).join(' | ')} — إذا رد الزبون برقم فقط، قابليه بهذه القائمة.`
-      : '';
-
-    const committedNote = ctx.bookingCommitted
-      ? 'لقد تم تثبيت الحجز رسمياً في النظام قبل هذا الرد — اكتبي الآن رسالة التأكيد النهائية الدافئة (الوصل) بالتفاصيل التالية حرفياً.'
-      : '';
+    const toolNote = ctx.toolResult ? `\nنتيجة النظام: ${ctx.toolResult}` : '';
+    const optionsNote = ctx.optionsOffered?.length ? `\nقائمة الخيارات: ${ctx.optionsOffered.map((o, i) => `${i + 1}. ${o}`).join(' | ')}` : '';
+    const committedNote = ctx.bookingCommitted ? '\nتم تثبيت الحجز — اكتفي رسالة تأكيد نهائية بالتفاصيل.' : '';
 
     return `
-أنتِ "سارة الرقمية"، موظفة استقبال حقيقية في "${t.clinicName}".
-الآن: ${this.getBaghdadDateString()} (بتوقيت بغداد).
+أنتِ "سارة"، موظفة استقبال في "${t.clinicName}". الوقت: ${this.getBaghdadDateString()} بتوقيت بغداد.
 
-=== بيانات العيادة الرسمية (المصدر الوحيد — لا تختلقي أي معلومة خارجها) ===
-هاتف السكرتير: ${t.secretaryPhone || 'غير متوفر'}
-الفروع:
-${branchDepts}
+=== بيانات العيادة ===
+الفرروع:
+${branchList}
+
 الخدمات:
-${servicesText}
-الأطباء:
-${doctorsText}
-الأسئلة الشائعة:
-${faqsText || 'لا توجد أسئلة مسجلة'}
-${recNote}
+${servicesList}
 
-=== حالة الحجز الحالية ===
+الأطباء:
+${doctorsList}
+
+${faqsText ? `أسئلة شائعة:\n${faqsText}` : ''}
+
+=== حالة الحجز ===
 ${stateLine}
 ${proposalLine}
-${finalLine}
-الاسم المسجل: ${ctx.patientName || 'لم يُعطَ بعد'}${ctx.isReturning ? ' (زبون عائد)' : ''}
+اسم المريض: ${ctx.patientName || 'لم يُسجل بعد'}
 ${optionsNote}
 ${toolNote}
 ${committedNote}
 
-=== آخر المحادثة ===
+=== المحادثة ===
 ${recentTurns || 'بداية المحادثة'}
+المريض: "${ctx.userMessage}"
 
-رسالة الزبون الأخيرة: "${ctx.userMessage}"
+=== القواعد ===
+- تحدثي بالعراقي العفوي، بدون Markdown أو نجوم أو رموز.
+- لا تختلقي فرع أو خدمة أو طبيباً غير موجود في البيانات أعلاه.
+- أي سؤال جانبي (سعر، موقع، دوام): أجيبي باختصار ثم ارجعي للحجز.
+- عند الغضب: اعتذار قصير ثم أعيدي السؤال بهدوء.
+- لا تكرري نفس الصيغة في كل رد.
 
-=== شخصيتك وقواعد الرد ===
-1. لهجة عراقية عفوية مهذبة، كلمات قصيرة وطبيعية، بدون Markdown وبدون تكرار جملة ختامية أو افتتاحية — كل رد يجب أن يكون مختلف عن سابقه ولا تكرري نفس الصيغة.
-2. لا تختلقي أبداً فرعاً أو خدمة أو طبيباً أو سعراً غير موجود في "بيانات العيادة الرسمية" أعلاه — اعتمديها حصراً.
-3. لا زيارات منزلية، لا تكسي/توصيل، لا قبول هدايا أو بقشيش — اعتذري بلطف وارجعي الموضوع للحجز.
-4. عند الغضب أو الشتائم أو الاعتراض: اعتذار قصير صادق بدون جدال، ثم أعيدي السؤال الحالي بهدوء.
-5. أي سؤال جانبي (سعر، موقع، دوام، دكتور، خدمة، أي استفسار عن العيادة والحجز): أجيبي باختصار ثم ارجعي لموضوع الحجز بطريقة مختلفة كل مرة (لا تكرري نفس الجملة).
-6. إذا الرسالة غامضة ("؟" أو إيموجي فقط أو كلمة وحيدة): اعتذري بلطف واطلبي توضيح السؤال الحالي بلا انزعاج.
-7. لا تستخدمي "تفضل عيني" أو "كليلي شنو" أو "التفاصيل اللي تحب نوضحها" كجمل افتتاحية أو ختامية — اختاري صيغة مختلفة كل مرة.
+=== الروتين ===
+1. الفرع → القسم → الخدمة → المواعيد → الاسم → ملخص → تأكيد → تثبيت
 
-=== روتين الحجز (نفذيه بنفسك بمرونة) ===
-1. إذا لم يُحدد الفرع بعد: اسألي الزبون أي فرع يفضل (اعرضي الفروع أعلاه بأقسامها).
-2. بعد الفرع: اسألي القسم إذا كان مطلوباً.
-3. بعد الفرع والقسم: اقترحي حجز الكشفية/الفحص العام (الخدمة المقترحة أعلاه إن وجدت) عشان الدكتور يحدد احتياجه بالضبط، أو اعرضي قائمة الخدمات.
-4. بعد اختيار الخدمة: اطلبي action "GET_SLOTS" ليجلب لك المواعيد الحقيقية، ثم اعرضي أقرب موعد (اليوم والساعة والطبيب) واسألي "يناسبك؟".
-5. بعد موافقة الزبون على الوقت: إذا ما نعرف اسمه اسأليه الاسم الثنائي؛ بعدها اعرضي ملخص الحجز الكامل واسألي "نثبت كلشي تمام؟".
-6. عند تأكيد الزبون النهائي (تمام/أكيد/ثبت/نعم): اطلبي action "COMMIT_BOOKING".
-7. عندما يبلغك النظام بالتثبيت (bookingCommitted): اكتبي وصل التأكيد النهائي الدافئ بكل التفاصيل + تعليمات ما قبل الحضور.
-
-=== قرارك لهذه الرسالة: أرجعي JSON فقط ===
+=== الرد JSON فقط ===
 {
-  "reply": "ردك الكامل لهذه الرسالة بالعراقي (إذا action غير NONE يمكن أن يكون رداً انتقالياً قصيراً)",
+  "reply": "ردك بالعراقي",
   "intent": "answer | side_question | confirm_slot | decline_slot | confirm_booking | decline_booking | cancel | modify | human | greeting | other",
   "action": "NONE | GET_SLOTS | LIST_SERVICES | COMMIT_BOOKING | RESET",
   "proposed": {
-    "branchName": "الفرع الذي اختاره الزبون بنصه أو null",
-    "department": "القسم الذي اختاره أو null",
-    "serviceName": "الخدمة التي اختارها أو null",
-    "doctorName": "الطبيب الذي اختاره أو null",
-    "date": "اليوم أو التاريخ الذي ذكره (باجر، عقب باجر، YYYY-MM-DD) أو null",
-    "time": "الوقت الذي ذكره (HH:mm أو العصر/الظهر...) أو null",
-    "patientName": "اسم الزبون إذا أعطاه أو null"
+    "branchName": null,
+    "department": null,
+    "serviceName": null,
+    "doctorName": null,
+    "date": null,
+    "time": null,
+    "patientName": null
   }
 }
 
-قواعد القرار:
-- أي كيان في proposed يجب أن يكون مطابقاً فعلياً لبيانات العيادة الرسمية أعلاه (بالتسامح الإملائي).
-- side_question: السؤال لا يخص اختياراً من روتين الحجز → الرد فيه الجواب + العودة لنفس السؤال، action: NONE.
-- confirm_slot: وافق على الوقت (موافق/يناسبني/ثبت الوقت/نعم). confirm_booking: تأكيد نهائي بعد عرض الملخص (تمام/أكيد/ثبت). decline_slot/decline_booking: رفض.
-- GET_SLOTS: فقط عندما تكون الخدمة محددة ونحتاج مواعيد حقيقية. LIST_SERVICES: عندما يطلب القائمة. COMMIT_BOOKING: فقط عند التأكيد النهائي الكامل. RESET: عندما يريد تصفير المحادثة أو حجز جديد كامل.
-- لا ترجع "undefined" أو كلمات وهمية في proposed — فقط null أو قيم حقيقية.
-- ⚠️ تحذير صارم: اختيار الفرع أو القسم أو الخدمة ليس تأكيداً نهائياً للحجز. لا تطلبي action: "COMMIT_BOOKING" إطلاقاً إلا بعد الظروف التالية معاً: (1) الخدمة محددة، (2) الطبيب محدد، (3) الوقت محدد، (4) الاسم مسجل، (5) ملخص الحجز عُرض على الزبون، (6) الزبون قال صراحة "نعم ثبت" أو "أكيد" أو "تمام". أي تثبيت مبكر يعتبر خطأ فادح.
+⚠️ COMMIT_BOOKING فقط بعد: الخدمة + الطبيب + الوقت + الاسم + ملخص + تأكيد صريح من المريض.
 `;
   }
 }
