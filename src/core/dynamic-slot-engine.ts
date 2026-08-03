@@ -186,10 +186,14 @@ export class DynamicSlotEngine {
       const activeBookings = await GoogleSheetsService.fetchActiveBookings(todayStr);
 
       // 6. Gemini conductor: free conversation, validated booking decisions
-      return await this.runConductor(session, processedText, tenant, activeBookings, null, 0);
+      console.log(`[DynamicEngine] Processing message for ${phone}: "${processedText.substring(0, 50)}"`);
+      const result = await this.runConductor(session, processedText, tenant, activeBookings, null, 0);
+      console.log(`[DynamicEngine] Reply for ${phone}: "${result.substring(0, 80)}"`);
+      return result;
 
     } catch (error: any) {
-      console.error('[DynamicSlotEngine Error]:', error);
+      console.error('[DynamicSlotEngine Error]:', error?.message || error);
+      console.error('[DynamicSlotEngine Error Stack]:', error?.stack);
       await GoogleSheetsService.logSystemError(`[DynamicEngine Error]: ${error.message || String(error)}`, phone, session?.patientName);
       return `عذراً عيني، حصل انقطاع مؤقت بالخدمة. تقدر تتواصل وتكمل حجزك مباشرة وية السكرتارية على الرقم المباشر: ${tenant.secretaryPhone || '07881015584'} خلال ساعات الدوام الرسمية.`;
     }
@@ -214,6 +218,14 @@ export class DynamicSlotEngine {
     const s = session.slots || {};
     session.slots = s;
 
+    // Defensive: never let helper-crash take the whole conversation down
+    let recommended: string | null = null;
+    try {
+      recommended = this.recommendedService(tenant, s);
+    } catch (err: any) {
+      console.error('[runConductor] recommendedService crashed:', err?.message || err);
+    }
+
     const ctx: ConductTurnContext = {
       userMessage,
       tenant,
@@ -225,19 +237,34 @@ export class DynamicSlotEngine {
       proposedSlot: session.proposedSlot,
       awaitingFinalConfirm: !!session.awaitingFinalConfirm,
       optionsOffered: session.lastPrompt?.options,
-      recommendedService: this.recommendedService(tenant, s),
+      recommendedService: recommended,
       toolResult,
       lockedSession: session.status === 'COMPLETED_LOCKED'
     };
 
-    const cr = await GeminiService.conductTurn(ctx);
+    console.log(`[runConductor] Calling conductTurn for ${session.phoneNumber} depth=${depth} intent=${session.lastPrompt?.slotType || 'none'}`);
+    let cr: ConductTurnResult;
+    try {
+      cr = await GeminiService.conductTurn(ctx);
+    } catch (err: any) {
+      console.error('[runConductor] conductTurn CRASHED:', err?.message || err);
+      console.error('[runConductor] conductTurn STACK:', err?.stack);
+      return `عيني ما فهمتك زين، تفضل أعيد كلامك مرة ثانية وتدلل 🌸`;
+    }
+    console.log(`[runConductor] conductTurn returned: intent=${cr.intent} action=${cr.action} reply="${(cr.reply || '').substring(0, 60)}"`);
 
     // Deterministic exits Gemini may have detected
     if (cr.intent === 'cancel' || cr.intent === 'modify') {
-      const handled = await this.handleCancelModify(session, session.phoneNumber, tenant, userMessage, cr.intent === 'cancel', cr.intent === 'modify');
-      if (handled) return handled;
+      try {
+        const handled = await this.handleCancelModify(session, session.phoneNumber, tenant, userMessage, cr.intent === 'cancel', cr.intent === 'modify');
+        if (handled) return handled;
+      } catch (err: any) {
+        console.error('[runConductor] handleCancelModify crashed:', err?.message || err);
+        return `عيني ما لقينا حجز نشط مسجل بهاد الرقم. إذا تحب تثبت حجز جديد، كليلي شنو القسم أو الخدمة المحتاجها وتدلل!`;
+      }
     }
     if (cr.intent === 'human') {
+      console.log(`[runConductor] Intent=human, logging complaint and calling handoff for ${session.phoneNumber}`);
       await GoogleSheetsService.logComplaint({
         timestamp: new Date().toISOString(),
         patientName: session.patientName || 'مراجع كريم',
@@ -245,7 +272,9 @@ export class DynamicSlotEngine {
         complaintContent: userMessage,
         status: 'PENDING'
       });
-      return HandoffManager.executeHandoff(session, tenant);
+      const handoffMsg = HandoffManager.executeHandoff(session, tenant);
+      console.log(`[runConductor] Handoff message: "${handoffMsg.substring(0, 60)}"`);
+      return handoffMsg;
     }
 
     // Locked completed sessions: only RESET / cancel / modify move forward
@@ -263,7 +292,9 @@ export class DynamicSlotEngine {
     }
 
     // Apply Gemini's proposed values — validated against real clinic data
+    console.log(`[runConductor] Applying proposed values:`, JSON.stringify(cr.proposed || {}).substring(0, 200));
     this.applyProposed(session, cr.proposed, tenant);
+    console.log(`[runConductor] After applyProposed: slots=`, JSON.stringify({ branch: s.branchName, service: s.serviceName, doctor: s.doctorName, date: s.date, time: s.startTime, name: s.patientName }));
 
     // ---- Tool actions ----
     if (cr.action === 'LIST_SERVICES') {

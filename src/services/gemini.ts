@@ -306,7 +306,15 @@ export class GeminiService {
   }
 
   public static async conductTurn(ctx: ConductTurnContext): Promise<ConductTurnResult> {
-    const prompt = this.buildConductorPrompt(ctx);
+    let prompt: string;
+    try {
+      prompt = this.buildConductorPrompt(ctx);
+    } catch (err: any) {
+      console.error('[Gemini] buildConductorPrompt CRASHED:', err?.message || err);
+      console.error('[Gemini] buildConductorPrompt STACK:', err?.stack);
+      prompt = this.buildFallbackPrompt(ctx);
+    }
+
     const fallback: ConductTurnResult = {
       reply: 'عيني عذراً، صار انقطاع لحظي بالاتصال. تفضل أعيد كلامك مرة ثانية وتدلل 🌸',
       intent: 'other',
@@ -466,6 +474,34 @@ ${recentTurns || 'بداية المحادثة'}
 }
 
 ⚠️ COMMIT_BOOKING فقط بعد: الخدمة + الطبيب + الوقت + الاسم + ملخص + تأكيد صريح من المريض.
+`;
+  }
+
+  /** Minimal safe prompt if the data-driven prompt builder crashes on live data */
+  private static buildFallbackPrompt(ctx: ConductTurnContext): string {
+    const recentTurns = (ctx.recentMessages || []).slice(-4).map(turn => `${turn.role === 'user' ? 'المريض' : 'سارة'}: ${String(turn.text || '')}`).join('\n');
+    return `
+أنتِ "سارة"، موظفة استقبال في عيادة أسنان. تحدثي بالعراقي العفوي.
+المريض: "${ctx.userMessage || ''}"
+
+=== الحالة ===
+${ctx.slots?.branchName ? `الفرع: ${ctx.slots.branchName}` : 'لم يُحدد الفرع'}
+${ctx.slots?.serviceName ? `الخدمة: ${ctx.slots.serviceName}` : ''}
+
+=== المحادثة ===
+${recentTurns || 'بداية المحادثة'}
+
+=== الروتين ===
+1. الفرع → القسم → الخدمة → المواعيد → الاسم → ملخص → تأكيد → تثبيت
+- اسألي عن الفرع أولاً إذا لم يُحدد بعد.
+
+=== الرد JSON فقط ===
+{
+  "reply": "ردك بالعراقي، بدون أي رموز",
+  "intent": "answer",
+  "action": "NONE",
+  "proposed": {}
+}
 `;
   }
 }
