@@ -298,6 +298,12 @@ export class DynamicSlotEngine {
         session.lastPrompt = undefined;
         return this.runConductor(session, userMessage, tenant, activeBookings, 'تم تصفير المحادثة — ابدئي روتين الحجز من أول سؤال (الفرع).', depth + 1);
       }
+      // HARD GUARD: don't commit unless user has seen summary and explicitly confirmed
+      // Exception: if pendingProposal=true (e.g. after conflict replacement), allow direct re-confirm
+      if (!session.awaitingFinalConfirm && !session.pendingProposal) {
+        return this.runConductor(session, userMessage, tenant, activeBookings,
+          'لا يمكن التثبيت بعد — يجب عرض الملخص النهائي والانتظار لتأكيد الزبون ("نعم ثبت") أولاً. أعيدي سؤال الملخص.', depth + 1);
+      }
       return await this.commitBooking(session, session.phoneNumber, tenant, activeBookings, depth);
     }
 
@@ -801,12 +807,17 @@ ${alt.ok ? 'البدائل المتاحة حالياً:\n' + alt.text : alt.text
       return { ok: false, message: `تدلل عيني! بقى بس تزودنا بـ اسمك المحترم حتى نثبت الحجز ونصدر لك كارت الموعد الرسمي! 🌸` };
     }
 
-    const branch = tenant.branches.find(b => b.id === s.branchId || b.name === s.branchName) || tenant.branches[0];
-    const doctor = tenant.doctors.find(d => d.id === s.doctorId || d.name === s.doctorName) || (tenant.branches[0] ? tenant.doctors[0] : undefined);
-    const service = tenant.services.find(srv => srv.id === s.serviceId || srv.name === s.serviceName) || tenant.services[0];
+    const branch = tenant.branches.find(b => b.id === s.branchId || b.name === s.branchName);
+    const doctor = tenant.doctors.find(d => d.id === s.doctorId || d.name === s.doctorName);
+    const service = tenant.services.find(srv => srv.id === s.serviceId || srv.name === s.serviceName);
 
-    if (!doctor) {
-      return { ok: false, message: `عذراً عيني، تواصل مع السكرتير لتثبيت موعدك: ${tenant.secretaryPhone}` };
+    if (!branch || !doctor || !service || !s.startTime) {
+      const missing: string[] = [];
+      if (!branch) missing.push('الفرع');
+      if (!service) missing.push('الخدمة');
+      if (!doctor) missing.push('الطبيب');
+      if (!s.startTime) missing.push('الوقت');
+      return { ok: false, message: `لا يمكن التثبيت بعد — ناقص: ${missing.join('، ')}. يرجى تحديد كل الخيارات قبل التثبيت.` };
     }
 
     // ---- Fresh availability re-check + atomic lock at commit time (double-booking guard) ----
