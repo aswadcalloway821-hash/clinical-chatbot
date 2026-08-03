@@ -1,7 +1,8 @@
 import dotenv from 'dotenv';
 import fs from 'fs';
 import { google } from 'googleapis';
-import { TenantConfig, Branch, Doctor, Service, Booking, PatientCRM, ComplaintRecord, AnalyticsRecord } from '../types/booking.js';
+import { TenantConfig, Branch, Doctor, Service, Booking, PatientCRM, ComplaintRecord, AnalyticsRecord, BookedSlot } from '../types/booking.js';
+import { getBaghdadToday } from '../utils/baghdad-time.js';
 
 dotenv.config();
 
@@ -107,38 +108,15 @@ export class GoogleSheetsService {
       console.warn('[File Service Account Auth Warning]:', saErr);
     }
 
-    // 2. OAuth2 Refresh Token fallback
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-
-    if (!clientId || !clientSecret || !refreshToken) return null;
-
-    try {
-      const res = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: refreshToken,
-          grant_type: 'refresh_token'
-        })
-      });
-
-      const data = await res.json() as any;
-      return data.access_token || null;
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   /**
    * Helper to fetch values from Google Sheets.
-   * Strategy 1: Google Sheets API v4 with OAuth2 Access Token.
+   * Strategy 1: Google Sheets API v4 with Service Account Access Token.
    * Strategy 2 (Bulletproof Fallback): GViz CSV Export endpoint (Zero Token Expiration!).
    */
-  private static async fetchSheetValues(rangeOrSheetName: string): Promise<any[][]> {
+  public static async fetchSheetValues(rangeOrSheetName: string): Promise<any[][]> {
     const tabName = rangeOrSheetName.split('!')[0];
 
     // 1. Try OAuth2 REST API v4 first
@@ -281,6 +259,52 @@ export class GoogleSheetsService {
       };
     });
 
+    // Helper to parse Arabic working days text (e.g. "السبت - الخميس" or "الجمعة والسبت")
+    const parseWorkingDays = (daysStr: string): number[] => {
+      if (!daysStr) return [0, 1, 2, 3, 4, 6];
+      const text = daysStr.trim().toLowerCase();
+      if (text.includes('كل الأيام') || text.includes('يوميا')) return [0, 1, 2, 3, 4, 5, 6];
+
+      const dayMap: Record<string, number> = {
+        'أحد': 0, 'الاحد': 0, 'الأحد': 0, 'sun': 0,
+        'إثنين': 1, 'اثنين': 1, 'الإثنين': 1, 'mon': 1,
+        'ثلاثاء': 2, 'الثلاثاء': 2, 'tue': 2,
+        'أربعاء': 3, 'اربعاء': 3, 'الأربعاء': 3, 'wed': 3,
+        'خميس': 4, 'الخميس': 4, 'thu': 4,
+        'جمعة': 5, 'الجمعة': 5, 'fri': 5,
+        'سبت': 6, 'السبت': 6, 'sat': 6
+      };
+
+      if (text.includes('-') || text.includes('إلى') || text.includes('لـ')) {
+        const parts = text.split(/\s*(?:-|–|—|إلى|لـ)\s*/).map(p => p.trim());
+        let startDay = -1;
+        let endDay = -1;
+        for (const [key, num] of Object.entries(dayMap)) {
+          if (parts[0]?.includes(key)) startDay = num;
+          if (parts[1]?.includes(key)) endDay = num;
+        }
+        if (startDay !== -1 && endDay !== -1) {
+          const days: number[] = [];
+          let curr = startDay;
+          while (true) {
+            days.push(curr);
+            if (curr === endDay) break;
+            curr = (curr + 1) % 7;
+          }
+          return days;
+        }
+      }
+
+      const days: number[] = [];
+      for (const [key, num] of Object.entries(dayMap)) {
+        if (text.includes(key) && !days.includes(num)) {
+          days.push(num);
+        }
+      }
+
+      return days.length > 0 ? days : [0, 1, 2, 3, 4, 6];
+    };
+
     // Dynamic Header Matching for Doctors_Config
     const docHeaders = (docRows[0] || []).map(h => String(h).trim().toLowerCase());
     const docNameIdx = docHeaders.indexOf('doctorname');
@@ -290,6 +314,10 @@ export class GoogleSheetsService {
     const docCalIdx = docHeaders.indexOf('calendarid');
     const docTitleIdx = docHeaders.indexOf('doctortitleexperience');
     const docCapacityIdx = docHeaders.indexOf('dailypatientcapacity');
+    const docDaysIdx = docHeaders.findIndex(h => h.includes('workingday') || h.includes('days'));
+    const docHoursIdx = docHeaders.findIndex(h => h.includes('workinghours') || h.includes('workinghour'));
+    const docBreakIdx = docHeaders.findIndex(h => h.includes('breaktime') || h.includes('break'));
+    const docOffIdx = docHeaders.findIndex(h => h.includes('offday') || h.includes('offday') || h.includes('holiday'));
 
     const secretaryPhone = (docPhoneIdx !== -1 && docRows[1]?.[docPhoneIdx]?.trim()) 
       ? docRows[1][docPhoneIdx].trim() 
@@ -305,7 +333,16 @@ export class GoogleSheetsService {
       const calId = (docCalIdx !== -1 && d[docCalIdx]) ? d[docCalIdx].trim() : 'primary';
 
       const matchingBranch = branches.find(b => b.name.trim() === docBranchName) || branches[0];
-      const parsedHours = parseWorkingHoursRange(matchingBranch.workingHours);
+      const rawDoctorHours = (docHoursIdx !== -1 && d[docHoursIdx]) ? d[docHoursIdx].trim() : '';
+      const parsedHours = rawDoctorHours ? parseWorkingHoursRange(rawDoctorHours) : parseWorkingHoursRange(matchingBranch.workingHours);
+      const rawDaysStr = (docDaysIdx !== -1 && d[docDaysIdx]) ? d[docDaysIdx].trim() : '';
+      const parsedDays = parseWorkingDays(rawDaysStr);
+      const rawBreaks = (docBreakIdx !== -1 && d[docBreakIdx]) ? d[docBreakIdx].trim() : '';
+      const rawOffDays = (docOffIdx !== -1 && d[docOffIdx]) ? d[docOffIdx].trim() : '';
+      // OffDays may contain specific dates ("2026-08-15") OR Arabic weekday names ("الجمعة", "الجمعة والسبت")
+      const offDays = rawOffDays
+        ? rawOffDays.split(/[,،;]/).map(x => x.trim()).filter(Boolean)
+        : [];
 
       return {
         id: `d_${idx + 1}`,
@@ -317,10 +354,12 @@ export class GoogleSheetsService {
         services: [],
         calendarId: calId,
         doctorTitleExperience: (docTitleIdx !== -1 && d[docTitleIdx]) ? d[docTitleIdx].trim() : '',
-        dailyPatientCapacity: (docCapacityIdx !== -1 && d[docCapacityIdx]) ? parseInt(d[docCapacityIdx]) || 20 : 20,
-        workingDays: [0, 1, 2, 3, 4, 6],
+        dailyPatientCapacity: (docCapacityIdx !== -1 && d[docCapacityIdx]) ? parseInt(String(d[docCapacityIdx]).replace(/[^0-9]/g, '')) || 20 : 20,
+        breakTimes: rawBreaks || undefined,
+        offDays,
+        workingDays: parsedDays,
         workingHours: {
-          days: [0, 1, 2, 3, 4, 6],
+          days: parsedDays,
           startHour: parsedHours.startHour,
           endHour: parsedHours.endHour,
           slotDurationMinutes: 30
@@ -332,9 +371,11 @@ export class GoogleSheetsService {
     const servHeaders = (servRows[0] || []).map(h => String(h).trim().toLowerCase());
     const servNameIdx = servHeaders.indexOf('name');
     const servDeptIdx = servHeaders.indexOf('department');
-    const servPriceIdx = servHeaders.indexOf('price');
+    const servPriceIdx = servHeaders.findIndex(h => h === 'price' || h === 'price_min' || h === 'pricemin');
+    const servPriceMinIdx = servHeaders.findIndex(h => h === 'price_min' || h === 'pricemin');
+    const servPriceMaxIdx = servHeaders.findIndex(h => h === 'price_max' || h === 'pricemax');
     const servDoctorIdx = servHeaders.indexOf('doctor');
-    const servDurationIdx = servHeaders.indexOf('duration');
+    const servDurationIdx = servHeaders.findIndex(h => h === 'duration' || h === 'durationminutes');
     const servOfferIdx = servHeaders.indexOf('offer');
     const servPreIdx = servHeaders.indexOf('preappointmentinstructions');
     const servPostIdx = servHeaders.indexOf('postcareadvice');
@@ -344,15 +385,19 @@ export class GoogleSheetsService {
       const sName = (servNameIdx !== -1 && s[servNameIdx]) ? s[servNameIdx].trim() : '';
       if (!sName) throw new Error(`[Google Sheets Error] Missing service name at row ${idx + 2} in 'Services_Config'.`);
       const sDept = (servDeptIdx !== -1 && s[servDeptIdx]) ? s[servDeptIdx].trim() : '';
-      const rawPrice = (servPriceIdx !== -1 && s[servPriceIdx]) ? s[servPriceIdx].trim().replace(/[^0-9]/g, '') : '0';
-      const sPrice = parseInt(rawPrice) || 0;
-      const sDuration = (servDurationIdx !== -1 && s[servDurationIdx]) ? parseInt(s[servDurationIdx]) || 30 : 30;
+      const toNumber = (v: any): number => parseInt(String(v || '').replace(/[^0-9]/g, '')) || 0;
+      const sPriceMin = servPriceMinIdx !== -1 ? toNumber(s[servPriceMinIdx]) : 0;
+      const sPriceMax = servPriceMaxIdx !== -1 ? toNumber(s[servPriceMaxIdx]) : 0;
+      const sPrice = servPriceIdx !== -1 ? toNumber(s[servPriceIdx]) : (sPriceMax || sPriceMin);
+      const sDuration = (servDurationIdx !== -1 && s[servDurationIdx]) ? toNumber(s[servDurationIdx]) || 30 : 30;
 
       return {
         id: `s_${idx + 1}`,
         name: sName,
         department: sDept,
         price: sPrice,
+        priceMin: sPriceMin,
+        priceMax: sPriceMax,
         durationMinutes: sDuration,
         doctorName: (servDoctorIdx !== -1 && s[servDoctorIdx]) ? s[servDoctorIdx].trim() : '',
         offer: (servOfferIdx !== -1 && s[servOfferIdx]) ? s[servOfferIdx].trim() : '',
@@ -389,6 +434,53 @@ export class GoogleSheetsService {
     this.cacheTimestamp = Date.now();
 
     return tenantConfig;
+  }
+
+  /**
+   * Fetch ALL active (non-cancelled) bookings from the live Bookings tab.
+   * Column map: A=code B=name C=phone D=branch E=service F=dateTime G=duration H=status
+   *             I=notes J=doctorName K=reminderStatus L=platform M=department N=calendarEventId O=calendarId
+   * Used by the slot engine to guarantee zero double-booking against the live sheet.
+   */
+  public static async fetchActiveBookings(fromDate: string = '2000-01-01'): Promise<BookedSlot[]> {
+    try {
+      const rows = await this.fetchSheetValues('Bookings!A1:O2000');
+      if (!rows || rows.length < 2) return [];
+
+      const booked: BookedSlot[] = [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        const status = String(r[7] || '').toUpperCase();
+        if (status === 'CANCELLED' || status === '') continue;
+
+        const dateTimeStr = String(r[5] || '');
+        const date = dateTimeStr.split(' ')[0] || '';
+        const startTime = dateTimeStr.split(' ')[1] || '';
+        if (!date || !startTime || date < fromDate) continue;
+
+        const duration = parseInt(String(r[6])) || 30;
+        const [sh, sm] = startTime.split(':').map(Number);
+        const totalEnd = (sh || 0) * 60 + (sm || 0) + duration;
+        const endH = Math.floor(totalEnd / 60).toString().padStart(2, '0');
+        const endM = (totalEnd % 60).toString().padStart(2, '0');
+
+        booked.push({
+          bookingCode: String(r[0] || ''),
+          doctorName: String(r[9] || '').trim() || undefined,
+          date,
+          startTime,
+          endTime: `${endH}:${endM}`,
+          status,
+          patientPhone: String(r[2] || ''),
+          calendarEventId: r[13] ? String(r[13]).trim() : undefined,
+          calendarId: r[14] ? String(r[14]).trim() : undefined
+        });
+      }
+      return booked;
+    } catch (err) {
+      console.warn('[Google Sheets fetchActiveBookings Warning]:', err);
+      return [];
+    }
   }
 
   /**
@@ -432,33 +524,96 @@ export class GoogleSheetsService {
   }
 
   /**
-   * Save or update Patient in Patients_CRM tab
+   * Save or UPDATE the patient in Patients_CRM tab.
+   * If the patient already exists (matched by normalized phone), the existing row is updated:
+   * TotalBookings is incremented, LastVisitDate refreshed, NoShowCount preserved.
+   * Otherwise a new row is appended.
+   * Column map: A=phone B=patientName C=platform D=totalBookings E=lastVisitDate F=noShowCount G=notes
    */
-  public static async savePatientCRM(patient: PatientCRM): Promise<void> {
-    try {
-      const token = await this.getAccessToken();
-      if (!token) return;
+  public static async savePatientCRM(patient: PatientCRM): Promise<boolean> {
+    const token = await this.getAccessToken();
+    if (!token) return false;
 
-      const cleanName = patient.patientName.replace(/^=/, "'=");
+    const cleanName = patient.patientName.replace(/^=/, "'=");
+    const cleanPhone = String(patient.phoneNumber || '').replace(/[^0-9]/g, '');
+    const visitDate = patient.lastVisitDate || new Date().toISOString().split('T')[0];
+    const newTotalBookings = (patient.totalBookings || 1);
+
+    try {
+      // Find existing row by phone
+      const rows = await this.fetchSheetValues('Patients_CRM!A1:G1000');
+      if (rows && rows.length >= 2) {
+        const headers = (rows[0] || []).map(h => String(h).trim().toLowerCase());
+        const phoneIdx = headers.indexOf('phonenumber');
+        const bookingsIdx = headers.indexOf('totalbookings');
+        const lastVisitIdx = headers.indexOf('lastvisitdate');
+        const noShowIdx = headers.indexOf('noshowcount');
+        const nameIdx = headers.indexOf('patientname');
+        const platformIdx = headers.indexOf('platform');
+        const notesIdx = headers.indexOf('notes');
+
+        for (let i = 1; i < rows.length; i++) {
+          const rPhone = String(rows[i][phoneIdx] || '').replace(/[^0-9]/g, '');
+          if (rPhone && rPhone === cleanPhone) {
+            const rowIndex = i + 1; // 1-based sheet row
+            const existingBookings = bookingsIdx !== -1 && rows[i][bookingsIdx] ? (parseInt(String(rows[i][bookingsIdx])) || 0) : 0;
+            const noShow = noShowIdx !== -1 && rows[i][noShowIdx] ? (parseInt(String(rows[i][noShowIdx])) || 0) : 0;
+
+            const updates: any[][] = [];
+            if (bookingsIdx !== -1) updates.push([`Patients_CRM!D${rowIndex}`, [[existingBookings + newTotalBookings]]]);
+            if (lastVisitIdx !== -1) updates.push([`Patients_CRM!E${rowIndex}`, [[visitDate]]]);
+            if (nameIdx !== -1 && rows[i][nameIdx] !== patient.patientName) updates.push([`Patients_CRM!B${rowIndex}`, [[cleanName]]]);
+            if (platformIdx !== -1 && !rows[i][platformIdx]) updates.push([`Patients_CRM!C${rowIndex}`, [[patient.platform || 'WhatsApp']]]);
+            if (notesIdx !== -1 && patient.notes) updates.push([`Patients_CRM!G${rowIndex}`, [[patient.notes]]]);
+
+            if (updates.length > 0) {
+              const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchUpdate?valueInputOption=USER_ENTERED`;
+              const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  valueInputOption: 'USER_ENTERED',
+                  data: updates.map(([range, values]) => ({ range, values }))
+                })
+              });
+              if (res.ok) {
+                console.log(`[Google Sheets CRM Update] Updated existing patient ${cleanPhone} (total bookings now ${existingBookings + newTotalBookings})`);
+                return true;
+              }
+            }
+            return true; // Row exists, nothing to update
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Google Sheets CRM Update Warning]:', err);
+    }
+
+    // Patient not found -> append new row
+    try {
       const values = [[
         patient.phoneNumber,
         cleanName,
         patient.platform || 'WhatsApp',
-        patient.totalBookings || 1,
-        patient.lastVisitDate || new Date().toISOString().split('T')[0],
+        newTotalBookings,
+        visitDate,
         patient.noShowCount || 0,
         patient.notes || ''
       ]];
-
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Patients_CRM!A:G:append?valueInputOption=USER_ENTERED`;
-      await fetch(url, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ values })
       });
+      if (res.ok) {
+        console.log(`[Google Sheets CRM] Appended new patient ${cleanPhone}`);
+        return true;
+      }
     } catch (err) {
       console.warn('[Google Sheets CRM Save Warning]:', err);
     }
+    return false;
   }
 
   /**
@@ -528,12 +683,13 @@ export class GoogleSheetsService {
   }
 
   /**
-   * Append a new booking to Google Sheets 'Bookings' tab
+   * Append a new booking to Google Sheets 'Bookings' tab (15 columns A:O).
+   * Returns true only when Google Sheets confirmed the write (used for calendar rollback).
    */
-  public static async saveBooking(booking: Booking): Promise<void> {
+  public static async saveBooking(booking: Booking): Promise<boolean> {
     try {
       const token = await this.getAccessToken();
-      if (!token) return;
+      if (!token) return false;
 
       const cleanName = booking.patientName.replace(/^=/, "'=");
       const values = [[
@@ -547,12 +703,14 @@ export class GoogleSheetsService {
         booking.status,
         booking.notes || '',
         booking.doctorName,
-        'PENDING',
-        'WhatsApp',
-        booking.department || 'عام'
+        booking.reminderStatus || 'PENDING',
+        booking.platform || 'WhatsApp',
+        booking.department || 'عام',
+        booking.calendarEventId || '',
+        booking.calendarId || ''
       ]];
 
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Bookings!A:M:append?valueInputOption=USER_ENTERED`;
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Bookings!A:O:append?valueInputOption=USER_ENTERED`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -561,9 +719,14 @@ export class GoogleSheetsService {
 
       if (res.ok) {
         console.log(`[Google Sheets API] Saved booking '${booking.bookingCode}' for ${booking.patientName}`);
+        return true;
+      } else {
+        console.error(`[Google Sheets Save Booking Error] HTTP ${res.status}:`, await res.text());
+        return false;
       }
     } catch (err) {
       console.error('[Google Sheets Save Booking Error]:', err);
+      return false;
     }
   }
 
@@ -584,15 +747,18 @@ export class GoogleSheetsService {
         const status = (r[7] || '').toUpperCase();
 
         if ((phone === cleanPhone || code.includes(phoneNumber)) && status !== 'CANCELLED') {
+          const dateTimeStr = (r[5] || '');
           return {
             bookingCode: code,
             patientName: r[1] || 'مراجع كريم',
             patientPhone: r[2] || phoneNumber,
             branchName: r[3] || '',
             serviceName: r[4] || '',
-            date: (r[5] || '').split(' ')[0] || '',
-            startTime: (r[5] || '').split(' ')[1] || '',
+            date: dateTimeStr.split(' ')[0] || '',
+            startTime: dateTimeStr.split(' ')[1] || '',
+            endTime: '',
             durationMinutes: parseInt(r[6]) || 30,
+            patientTag: 'RETURNING',
             status: status,
             notes: r[8] || '',
             doctorName: r[9] || '',
@@ -600,7 +766,9 @@ export class GoogleSheetsService {
             branchId: '',
             doctorId: '',
             serviceId: '',
-            createdAt: ''
+            createdAt: '',
+            calendarEventId: r[13] ? String(r[13]).trim() : undefined,
+            calendarId: r[14] ? String(r[14]).trim() : undefined
           };
         }
       }
@@ -611,15 +779,16 @@ export class GoogleSheetsService {
   }
 
   /**
-   * Cancel Active Booking in Google Sheets Bookings tab
+   * Cancel Active Booking in Google Sheets Bookings tab (Column H = CANCELLED).
+   * Returns the booking's calendar event info so the caller can also delete the Google Calendar event.
    */
-  public static async cancelBookingInSheet(bookingCode: string): Promise<boolean> {
+  public static async cancelBookingInSheet(bookingCode: string): Promise<{ bookingCode: string; calendarEventId?: string; calendarId?: string } | null> {
     try {
       const token = await this.getAccessToken();
-      if (!token) return false;
+      if (!token) return null;
 
-      const rows = await this.fetchSheetValues('Bookings!A1:Z500');
-      if (!rows || rows.length < 2) return false;
+      const rows = await this.fetchSheetValues('Bookings!A1:O1000');
+      if (!rows || rows.length < 2) return null;
 
       for (let i = 1; i < rows.length; i++) {
         const code = rows[i][0] || '';
@@ -631,12 +800,19 @@ export class GoogleSheetsService {
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ values: [['CANCELLED']] })
           });
-          return res.ok;
+          if (res.ok) {
+            return {
+              bookingCode,
+              calendarEventId: rows[i][13] ? String(rows[i][13]).trim() : undefined,
+              calendarId: rows[i][14] ? String(rows[i][14]).trim() : undefined
+            };
+          }
+          return null;
         }
       }
-      return false;
+      return null;
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -671,20 +847,27 @@ export class GoogleSheetsService {
   }
 
   /**
-   * Log Analytics row in Google Sheets Analytics tab
+   * Log Analytics row in Google Sheets Analytics tab.
+   * Analytics columns: A=Date B=TotalMessages C=TotalBookings D=CancelledBookings E=NoShows F=RecoveredRevenue
+   * Event details are mirrored to Analytics_Logs for auditability.
    */
   public static async logAnalytics(event: string, details: string): Promise<boolean> {
     try {
       const token = await this.getAccessToken();
       if (!token) return false;
+      const todayStr = getBaghdadToday();
+      const totalBookings = event === 'BOOKING_CONFIRMED' ? 1 : 0;
+      const cancelledBookings = event === 'BOOKING_CANCELLED' ? 1 : 0;
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Analytics!A1:append?valueInputOption=USER_ENTERED`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          values: [[new Date().toISOString(), event, details]]
+          values: [[todayStr, 1, totalBookings, cancelledBookings, 0, 0]]
         })
       });
+      // Mirror detailed event to Analytics_Logs (audit trail)
+      await this.logSystemError(`[${event}] ${details}`, '', '');
       return res.ok;
     } catch {
       return false;

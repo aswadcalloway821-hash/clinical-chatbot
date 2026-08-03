@@ -25,6 +25,8 @@ export interface Service {
   type?: string;
   department?: string;
   price: number;
+  priceMin?: number;
+  priceMax?: number;
   durationMinutes: number;
   doctorName?: string;
   description?: string;
@@ -81,6 +83,18 @@ export interface BookingSlots {
 
 export type SessionStatus = 'IN_PROGRESS' | 'COMPLETED_LOCKED' | 'MODIFYING';
 
+export interface ConversationTurn {
+  role: 'user' | 'bot';
+  text: string;
+}
+
+/** Metadata about the last question the bot asked, so short answers resolve in context */
+export interface PromptContext {
+  slotType: 'branch' | 'department' | 'service' | 'doctor' | 'time' | 'name' | 'confirm';
+  options: string[]; // the offered choices (display names) for index-mapping
+  question: string;
+}
+
 export interface PatientSession {
   phoneNumber: string;
   tenantId: string;
@@ -105,6 +119,21 @@ export interface PatientSession {
   bookingCode?: string;
   dailyMessageCount?: number;
   lastMessageDate?: string;
+  hasWelcomed?: boolean;
+  /** Rolling memory of the last 3 conversation turns (user + bot) */
+  recentMessages?: ConversationTurn[];
+  /** The slot type + options of the LAST question the bot asked (context for short answers) */
+  lastPrompt?: PromptContext;
+  /** Preferred time window set by a time-of-day term (e.g. العصر -> 15:00-18:00) */
+  preferredTimeRange?: { startMinute: number; endMinute: number; term?: string };
+  /** True when the last reply was an explicit booking proposal awaiting confirmation */
+  pendingProposal?: boolean;
+  /** Proposed (unlocked) slot shown to the user — locked only at final commit */
+  proposedSlot?: TimeSlot;
+  /** True when the user approved the slot and the final summary was shown (waiting for "نثبت") */
+  awaitingFinalConfirm?: boolean;
+  /** Set when the user said "اليوم" — first bookings start tomorrow (polite note) */
+  dayNote?: string;
 }
 
 export interface Booking {
@@ -129,6 +158,25 @@ export interface Booking {
   notes?: string;
   reminderStatus?: string;
   platform?: string;
+  calendarEventId?: string;
+  calendarId?: string;
+}
+
+/**
+ * A booked interval extracted from the live Bookings sheet used for
+ * double-booking-free slot validation.
+ */
+export interface BookedSlot {
+  bookingCode: string;
+  doctorId?: string;
+  doctorName?: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+  patientPhone: string;
+  calendarEventId?: string;
+  calendarId?: string;
 }
 
 export interface PatientCRM {

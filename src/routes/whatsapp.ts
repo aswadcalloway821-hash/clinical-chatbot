@@ -58,12 +58,9 @@ router.post('/webhook', (req: Request, res: Response) => {
       const value = changes?.value;
       const message = value?.messages?.[0];
 
-      if (message && message.type === 'text') {
+      if (message) {
         const messageId = message.id;
         const fromPhone = message.from;
-        // Security & Memory Hardening: Cap incoming message length to 1000 chars
-        const rawText = message.text.body || '';
-        const messageText = rawText.length > 1000 ? rawText.substring(0, 1000) : rawText;
 
         // MECHANISM 2: Deduplication Set check
         if (processedMessageIds.has(messageId)) {
@@ -72,8 +69,20 @@ router.post('/webhook', (req: Request, res: Response) => {
         }
         processedMessageIds.add(messageId);
 
-        // MECHANISM 3: 2.5s Multi-Message Debounce Buffer
-        enqueueMessageForProcessing(fromPhone, messageText);
+        if (message.type === 'text') {
+          // Security & Memory Hardening: Cap incoming message length to 1000 chars
+          const rawText = message.text?.body || '';
+          const messageText = rawText.length > 1000 ? rawText.substring(0, 1000) : rawText;
+
+          // MECHANISM 3: 5s Multi-Message Debounce Buffer
+          enqueueMessageForProcessing(fromPhone, messageText);
+        } else if (message.type === 'audio' && message.audio?.id) {
+          fetchWhatsAppAudioBase64(message.audio.id).then(base64 => {
+            if (base64) {
+              enqueueMessageForProcessing(fromPhone, `AUDIO_BASE64:${base64}`);
+            }
+          });
+        }
       }
       return;
     }
@@ -220,6 +229,35 @@ async function sendWhatsAppCloudMessage(toPhone: string, text: string): Promise<
   } catch (err) {
     console.error('[WhatsApp Cloud API Exception]:', err);
     return false;
+  }
+}
+
+/**
+ * Helper to fetch audio media binary from WhatsApp Cloud API and convert to Base64
+ */
+async function fetchWhatsAppAudioBase64(mediaId: string): Promise<string | null> {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!token || !mediaId) return null;
+
+  try {
+    const mediaRes = await fetch(`https://graph.facebook.com/v18.0/${mediaId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!mediaRes.ok) return null;
+    const mediaData = await mediaRes.json() as any;
+    const mediaUrl = mediaData.url;
+    if (!mediaUrl) return null;
+
+    const audioRes = await fetch(mediaUrl, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!audioRes.ok) return null;
+
+    const arrayBuffer = await audioRes.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString('base64');
+  } catch (err) {
+    console.error('[WhatsApp Audio Fetch Exception]:', err);
+    return null;
   }
 }
 

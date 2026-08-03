@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { NLUResult, TenantConfig } from '../types/booking.js';
-import { SlicedContextPayload } from '../fsm/context-slicer.js';
+import { NLUResult, TenantConfig, BookingSlots, TimeSlot, ConversationTurn } from '../types/booking.js';
+import { getBaghdadTomorrow } from '../utils/baghdad-time.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -224,38 +224,6 @@ export class GeminiService {
   }
 
   /**
-   * Generate Authentic Iraqi Dialect response ("سارة الرقمية") using real TenantConfig (Zero Dummy Data!)
-   */
-  public static async generateIraqiResponse(slicedContext: SlicedContextPayload, tenant: TenantConfig): Promise<string> {
-    const prompt = `
-المركز الطبي الحقيقي: ${slicedContext.clinicName}
-الخطوة الحالية: ${slicedContext.step}
-التعليمات المطلوبة منكِ الآن: ${slicedContext.stepInstruction}
-بيانات الخطوة الحالية: ${JSON.stringify(slicedContext.stepData)}
-رسالة المريض الأخيرة: "${slicedContext.userMessage}"
-
-قاعدة صارمة: إذا كانت بيانات الخطوة الحالية تحتوي على "branchDepartmentsList"، انسخي نص القائمة المترقمة الموجود داخل branchDepartmentsList سطر بسطر كما هو بالضبط دون تغييره أو استبداله بالأقسام العادية!
-صوغي ردكِ بالكامل بلهجة عراقية محبوبة وعفوية لـ "${slicedContext.clinicName}"، بدون أي نجوم أو خطوط أو رموز تنصيص أو Markdown.
-أجيبي المريض مباشرة بحسب التعليمات بدون إضافة أي عبارة ترحيبية أو ختامية مكررة في نهاية الرد!
-`;
-
-    try {
-      const modelName = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        systemInstruction: this.getSystemInstruction(tenant)
-      });
-      const response = await model.generateContent(prompt);
-
-      const reply = response.response.text()?.trim() || '';
-      return this.cleanMarkdown(reply);
-    } catch (error) {
-      console.error('Gemini NLG Error:', error);
-      return `تفضل عيني، أنا بانتظار اختيارك لتكملة الحجز.`;
-    }
-  }
-
-  /**
    * Answer FAQ dynamically based on Google Sheets TenantConfig
    */
   public static async answerFaq(userMessage: string, tenant: TenantConfig): Promise<string> {
@@ -284,4 +252,226 @@ export class GeminiService {
       return `تفضل عيني، يمكنك الاتصال بالسكرتارية لمعرفة كافة التفاصيل: ${tenant.secretaryPhone}.`;
     }
   }
+
+  // ------------------------------------------------------------------
+  // Conversation Conductor: Gemini controls the dialogue via prompt.
+  // No fixed ladder, no hardcoded entity names — everything is injected
+  // dynamically from the tenant data every turn.
+  // ------------------------------------------------------------------
+
+  public static readonly INTENTS = ['answer', 'side_question', 'confirm_slot', 'decline_slot', 'confirm_booking', 'decline_booking', 'cancel', 'modify', 'human', 'greeting', 'other'] as const;
+  public static readonly ACTIONS = ['NONE', 'GET_SLOTS', 'LIST_SERVICES', 'COMMIT_BOOKING', 'RESET'] as const;
+
+  public static async conductTurn(ctx: ConductTurnContext): Promise<ConductTurnResult> {
+    const prompt = this.buildConductorPrompt(ctx);
+    const fallback: ConductTurnResult = {
+      reply: 'عيني عذراً، صار انقطاع لحظي بالاتصال. تفضل أعيد كلامك مرة ثانية وتدلل 🌸',
+      intent: 'other',
+      action: 'NONE',
+      proposed: {}
+    };
+
+    try {
+      const modelName = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: this.getSystemInstruction(ctx.tenant),
+        generationConfig: { responseMimeType: 'application/json' }
+      });
+      const response = await model.generateContent(prompt);
+      const text = response.response.text()?.trim() || '';
+      const parsed = this.extractJson(text);
+      if (!parsed) return fallback;
+
+      const intent = this.INTENTS.includes(parsed.intent) ? parsed.intent : 'other';
+      const action = this.ACTIONS.includes(parsed.action) ? parsed.action : 'NONE';
+      return {
+        reply: this.cleanMarkdown(String(parsed.reply || '')) || fallback.reply,
+        intent,
+        action,
+        proposed: (parsed.proposed && typeof parsed.proposed === 'object') ? parsed.proposed : {}
+      };
+    } catch (err) {
+      console.error('Gemini Conductor Error:', err);
+      return fallback;
+    }
+  }
+
+  /** Robust JSON extraction: strips fences and grabs the outermost {...} */
+  private static extractJson(text: string): any | null {
+    const cleaned = text.replace(/```(?:json)?/gi, '').trim();
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start === -1 || end <= start) return null;
+    try {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Build the conductor prompt dynamically from the CURRENT tenant data.
+   * Contains ZERO hardcoded clinic entity names — every name, price, hour
+   * comes from the live Google Sheets data at call time.
+   */
+  private static buildConductorPrompt(ctx: ConductTurnContext): string {
+    const t = ctx.tenant;
+
+    const branchDepts = t.branches.map(b => {
+      const bDocs = t.doctors.filter(d => d.branchId === b.id || d.branchName === b.name);
+      const depts = Array.from(new Set(t.services.filter(s => bDocs.some(d => d.name === s.doctorName || !s.doctorName)).map(s => s.department).filter(Boolean)));
+      return `${b.name}${b.address ? ' - ' + b.address : ''} — الأقسام: ${depts.length ? depts.join(' ، ') : 'عام'}`;
+    }).join('\n');
+
+    const servicesText = t.services.map(s => {
+      const doc = t.doctors.find(d => d.name === s.doctorName);
+      return `- ${s.name} | السعر: ${s.price > 0 ? s.price + ' دينار' : 'حسب الفحص'} | المدة: ${s.durationMinutes || 30} دقيقة | القسم: ${s.department || 'عام'}${s.doctorName ? ' | الطبيب: ' + s.doctorName + (doc ? ' (' + doc.branchName + ')' : '') : ''}`;
+    }).join('\n');
+
+    const doctorsText = t.doctors.map(d => {
+      const days = (d.workingHours?.days || []).map(n => ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'][n]).join('، ');
+      return `- ${d.name} | الفرع: ${d.branchName || d.branchId} | التخصص: ${d.specialty || 'عام'} | الدوام: ${days || 'يومياً'} من ${d.workingHours?.startHour ?? 9} إلى ${d.workingHours?.endHour ?? 17}`;
+    }).join('\n');
+
+    const faqsText = (t.faqs || []).slice(0, 12).map(f => `س: ${f.question} | ج: ${f.answer}`).join('\n');
+
+    // Current state (what the patient has already provided)
+    const s = ctx.slots || {};
+    const filled: string[] = [];
+    if (s.branchName) filled.push(`الفرع: ${s.branchName}`);
+    if (s.department) filled.push(`القسم: ${s.department}`);
+    if (s.serviceName) filled.push(`الخدمة: ${s.serviceName}`);
+    if (s.doctorName) filled.push(`الطبيب: ${s.doctorName}`);
+    if (s.date) filled.push(`التاريخ: ${s.date}`);
+    if (s.startTime) filled.push(`الوقت: ${s.startTime}`);
+    const stateLine = filled.length ? filled.join(' ، ') : 'لا يوجد أي اختيار بعد';
+
+    let proposalLine = '';
+    if (ctx.pendingProposal && ctx.proposedSlot) {
+      proposalLine = `تم عرض اقتراح موعد على الزبون: ${ctx.proposedSlot.date === getBaghdadTomorrow() ? 'غداً' : ctx.proposedSlot.date} الساعة ${ctx.proposedSlot.startTime} مع ${ctx.proposedSlot.doctorName || s.doctorName || ''}`;
+    }
+    const finalLine = ctx.awaitingFinalConfirm ? 'الزبون وافق على الوقت وأنت الآن في مرحلة الملخص النهائي — انتظر تأكيده الأخير ("تمام/أكيد/ثبت") قبل طلب التثبيت.' : '';
+
+    const recentTurns = (ctx.recentMessages || []).slice(-6).map(turn => `${turn.role === 'user' ? 'الزبون' : 'سارة'}: ${turn.text}`).join('\n');
+
+    const toolNote = ctx.toolResult
+      ? `\nنتيجة عملية قام بها النظام للتو (استخدميها حرفياً ولا تبدليها):\n${ctx.toolResult}`
+      : '';
+
+    const recNote = ctx.recommendedService ? `الخدمة المقترحة كخيار سريع: ${ctx.recommendedService}` : '';
+
+    const optionsNote = ctx.optionsOffered && ctx.optionsOffered.length
+      ? `آخر قائمة عرضتها على الزبون (بأرقام): ${ctx.optionsOffered.map((o, i) => `${i + 1}. ${o}`).join(' | ')} — إذا رد الزبون برقم فقط، قابليه بهذه القائمة.`
+      : '';
+
+    const committedNote = ctx.bookingCommitted
+      ? 'لقد تم تثبيت الحجز رسمياً في النظام قبل هذا الرد — اكتبي الآن رسالة التأكيد النهائية الدافئة (الوصل) بالتفاصيل التالية حرفياً.'
+      : '';
+
+    return `
+أنتِ "سارة الرقمية"، موظفة استقبال حقيقية في "${t.clinicName}".
+الآن: ${this.getBaghdadDateString()} (بتوقيت بغداد).
+
+=== بيانات العيادة الرسمية (المصدر الوحيد — لا تختلقي أي معلومة خارجها) ===
+هاتف السكرتير: ${t.secretaryPhone || 'غير متوفر'}
+الفروع:
+${branchDepts}
+الخدمات:
+${servicesText}
+الأطباء:
+${doctorsText}
+الأسئلة الشائعة:
+${faqsText || 'لا توجد أسئلة مسجلة'}
+${recNote}
+
+=== حالة الحجز الحالية ===
+${stateLine}
+${proposalLine}
+${finalLine}
+الاسم المسجل: ${ctx.patientName || 'لم يُعطَ بعد'}${ctx.isReturning ? ' (زبون عائد)' : ''}
+${optionsNote}
+${toolNote}
+${committedNote}
+
+=== آخر المحادثة ===
+${recentTurns || 'بداية المحادثة'}
+
+رسالة الزبون الأخيرة: "${ctx.userMessage}"
+
+=== شخصيتك وقواعد الرد ===
+1. لهجة عراقية عفوية مهذبة، كلمات قصيرة وطبيعية، بدون Markdown وبدون تكرار جملة ختامية أو افتتاحية — كل رد يجب أن يكون مختلف عن سابقه ولا تكرري نفس الصيغة.
+2. لا تختلقي أبداً فرعاً أو خدمة أو طبيباً أو سعراً غير موجود في "بيانات العيادة الرسمية" أعلاه — اعتمديها حصراً.
+3. لا زيارات منزلية، لا تكسي/توصيل، لا قبول هدايا أو بقشيش — اعتذري بلطف وارجعي الموضوع للحجز.
+4. عند الغضب أو الشتائم أو الاعتراض: اعتذار قصير صادق بدون جدال، ثم أعيدي السؤال الحالي بهدوء.
+5. أي سؤال جانبي (سعر، موقع، دوام، دكتور، خدمة، أي استفسار عن العيادة والحجز): أجيبي باختصار ثم ارجعي لموضوع الحجز بطريقة مختلفة كل مرة (لا تكرري نفس الجملة).
+6. إذا الرسالة غامضة ("؟" أو إيموجي فقط أو كلمة وحيدة): اعتذري بلطف واطلبي توضيح السؤال الحالي بلا انزعاج.
+7. لا تستخدمي "تفضل عيني" أو "كليلي شنو" أو "التفاصيل اللي تحب نوضحها" كجمل افتتاحية أو ختامية — اختاري صيغة مختلفة كل مرة.
+
+=== روتين الحجز (نفذيه بنفسك بمرونة) ===
+1. إذا لم يُحدد الفرع بعد: اسألي الزبون أي فرع يفضل (اعرضي الفروع أعلاه بأقسامها).
+2. بعد الفرع: اسألي القسم إذا كان مطلوباً.
+3. بعد الفرع والقسم: اقترحي حجز الكشفية/الفحص العام (الخدمة المقترحة أعلاه إن وجدت) عشان الدكتور يحدد احتياجه بالضبط، أو اعرضي قائمة الخدمات.
+4. بعد اختيار الخدمة: اطلبي action "GET_SLOTS" ليجلب لك المواعيد الحقيقية، ثم اعرضي أقرب موعد (اليوم والساعة والطبيب) واسألي "يناسبك؟".
+5. بعد موافقة الزبون على الوقت: إذا ما نعرف اسمه اسأليه الاسم الثنائي؛ بعدها اعرضي ملخص الحجز الكامل واسألي "نثبت كلشي تمام؟".
+6. عند تأكيد الزبون النهائي (تمام/أكيد/ثبت/نعم): اطلبي action "COMMIT_BOOKING".
+7. عندما يبلغك النظام بالتثبيت (bookingCommitted): اكتبي وصل التأكيد النهائي الدافئ بكل التفاصيل + تعليمات ما قبل الحضور.
+
+=== قرارك لهذه الرسالة: أرجعي JSON فقط ===
+{
+  "reply": "ردك الكامل لهذه الرسالة بالعراقي (إذا action غير NONE يمكن أن يكون رداً انتقالياً قصيراً)",
+  "intent": "answer | side_question | confirm_slot | decline_slot | confirm_booking | decline_booking | cancel | modify | human | greeting | other",
+  "action": "NONE | GET_SLOTS | LIST_SERVICES | COMMIT_BOOKING | RESET",
+  "proposed": {
+    "branchName": "الفرع الذي اختاره الزبون بنصه أو null",
+    "department": "القسم الذي اختاره أو null",
+    "serviceName": "الخدمة التي اختارها أو null",
+    "doctorName": "الطبيب الذي اختاره أو null",
+    "date": "اليوم أو التاريخ الذي ذكره (باجر، عقب باجر، YYYY-MM-DD) أو null",
+    "time": "الوقت الذي ذكره (HH:mm أو العصر/الظهر...) أو null",
+    "patientName": "اسم الزبون إذا أعطاه أو null"
+  }
+}
+
+قواعد القرار:
+- أي كيان في proposed يجب أن يكون مطابقاً فعلياً لبيانات العيادة الرسمية أعلاه (بالتسامح الإملائي).
+- side_question: السؤال لا يخص اختياراً من روتين الحجز → الرد فيه الجواب + العودة لنفس السؤال، action: NONE.
+- confirm_slot: وافق على الوقت (موافق/يناسبني/ثبت الوقت/نعم). confirm_booking: تأكيد نهائي بعد عرض الملخص (تمام/أكيد/ثبت). decline_slot/decline_booking: رفض.
+- GET_SLOTS: فقط عندما تكون الخدمة محددة ونحتاج مواعيد حقيقية. LIST_SERVICES: عندما يطلب القائمة. COMMIT_BOOKING: فقط عند التأكيد النهائي الكامل. RESET: عندما يريد تصفير المحادثة أو حجز جديد كامل.
+- لا ترجع "undefined" أو كلمات وهمية في proposed — فقط null أو قيم حقيقية.
+`;
+  }
+}
+
+export interface ConductTurnContext {
+  userMessage: string;
+  tenant: TenantConfig;
+  slots: BookingSlots;
+  patientName?: string;
+  isReturning: boolean;
+  recentMessages: ConversationTurn[];
+  pendingProposal: boolean;
+  proposedSlot?: TimeSlot | null;
+  awaitingFinalConfirm: boolean;
+  optionsOffered?: string[];
+  recommendedService?: string;
+  toolResult?: string | null;
+  justReset?: boolean;
+  lockedSession?: boolean;
+  bookingCommitted?: boolean;
+}
+
+export interface ConductTurnResult {
+  reply: string;
+  intent: 'answer' | 'side_question' | 'confirm_slot' | 'decline_slot' | 'confirm_booking' | 'decline_booking' | 'cancel' | 'modify' | 'human' | 'greeting' | 'other';
+  action: 'NONE' | 'GET_SLOTS' | 'LIST_SERVICES' | 'COMMIT_BOOKING' | 'RESET';
+  proposed: {
+    branchName?: string;
+    department?: string;
+    serviceName?: string;
+    doctorName?: string;
+    date?: string;
+    time?: string;
+    patientName?: string;
+  };
 }

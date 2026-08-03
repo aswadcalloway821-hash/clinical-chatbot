@@ -1,33 +1,53 @@
+import { google } from 'googleapis';
+import fs from 'fs';
 import { Booking, Doctor } from '../types/booking.js';
 
 export class GoogleCalendarService {
   /**
-   * Fetch Access Token dynamically from Google OAuth2 Refresh Token
+   * Fetch Access Token dynamically from Service Account (Env Var GOOGLE_SERVICE_ACCOUNT_JSON / google-creds.json)
+   * OAuth2 refresh tokens are completely eliminated for strict enterprise security.
    */
   private static async getAccessToken(): Promise<string | null> {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-
-    if (!clientId || !clientSecret || !refreshToken) return null;
-
+    // 1. Try Environment Variable JSON string first (for Cloud / Render deployment)
     try {
-      const res = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: refreshToken,
-          grant_type: 'refresh_token'
-        })
-      });
-
-      const data = await res.json() as any;
-      return data.access_token || null;
-    } catch {
-      return null;
+      const saJsonEnv = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+      if (saJsonEnv) {
+        const credentials = JSON.parse(saJsonEnv);
+        const auth = new google.auth.GoogleAuth({
+          credentials,
+          scopes: [
+            'https://www.googleapis.com/auth/calendar',
+            'https://www.googleapis.com/auth/spreadsheets'
+          ]
+        });
+        const client = await auth.getClient();
+        const tokenResponse = await client.getAccessToken();
+        if (tokenResponse.token) return tokenResponse.token;
+      }
+    } catch (envErr) {
+      console.warn('[Calendar Env Service Account Auth Warning]:', envErr);
     }
+
+    // 2. Try local file google-creds.json (for local development)
+    try {
+      const credsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || 'google-creds.json';
+      if (fs.existsSync(credsPath)) {
+        const auth = new google.auth.GoogleAuth({
+          keyFile: credsPath,
+          scopes: [
+            'https://www.googleapis.com/auth/calendar',
+            'https://www.googleapis.com/auth/spreadsheets'
+          ]
+        });
+        const client = await auth.getClient();
+        const tokenResponse = await client.getAccessToken();
+        if (tokenResponse.token) return tokenResponse.token;
+      }
+    } catch (saErr) {
+      console.warn('[Calendar File Service Account Auth Warning]:', saErr);
+    }
+
+    return null;
   }
 
   /**
@@ -41,12 +61,13 @@ export class GoogleCalendarService {
       const calendarId = doctor.calendarId || 'primary';
       const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
 
-      const startDateTime = `${booking.date}T${booking.startTime}:00+03:00`;
-      const endDateTime = `${booking.date}T${booking.endTime}:00+03:00`;
+      // Wall-clock time WITHOUT offset + explicit timeZone (correct format for Calendar API v3)
+      const startDateTime = `${booking.date}T${booking.startTime}:00`;
+      const endDateTime = `${booking.date}T${booking.endTime}:00`;
 
       const event = {
         summary: `حجز طبي: ${booking.patientName} (${booking.bookingCode})`,
-        description: `خدمة: ${booking.serviceName}\nمريض: ${booking.patientName}\nهاتف: ${booking.patientPhone}\nفرع: ${booking.branchName}`,
+        description: `خدمة: ${booking.serviceName}\nمريض: ${booking.patientName}\nهاتف: ${booking.patientPhone}\nفرع: ${booking.branchName}\nكود الحجز: ${booking.bookingCode}`,
         start: { dateTime: startDateTime, timeZone: 'Asia/Baghdad' },
         end: { dateTime: endDateTime, timeZone: 'Asia/Baghdad' }
       };

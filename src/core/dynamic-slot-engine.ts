@@ -1,15 +1,40 @@
-import { PatientSession, TenantConfig, BookingSlots, Booking, TimeSlot } from '../types/booking.js';
-import { GeminiService } from '../services/gemini.js';
+import { PatientSession, TenantConfig, BookingSlots, Booking, TimeSlot, BookedSlot, Doctor, Service, Branch, PromptContext } from '../types/booking.js';
+import { GeminiService, ConductTurnResult, ConductTurnContext } from '../services/gemini.js';
 import { HandoffManager } from '../services/handoff-manager.js';
 import { SlotGenerator } from '../services/slot-generator.js';
 import { GoogleSheetsService } from '../services/google-sheets.js';
 import { GoogleCalendarService } from '../services/google-calendar.js';
+import { getBaghdadToday, getBaghdadTomorrow, addDays, formatDate } from '../utils/baghdad-time.js';
+import {
+  normalizeArabicText, toAsciiDigits, interpretDayTerm, interpretTimeTerm,
+  entityMentionScore, wordFuzzyScore, dateFromOffset
+} from './interpretation.js';
+
+const CANCEL_REGEX = /إلغاء الحجز|الغاء الحجز|الغي الحجز|أريد ألغي|إلغاء موعدي|الغاء موعدي|نلغي الحجز|إلغاء حجز|الغاء حجز/i;
+const MODIFY_REGEX = /تعديل الحجز|أغير الموعد|تغيير الموعد|عدل الموعد|تعديل موعدي|أغير وقت|تغيير وقت|أغير التاريخ/i;
+const JUNK_NAME_RE = /^(undefined|null|none|لا يوجد|بدون|n\/a)$/i;
+const CONFLICT_RE = /انحجز|امتلأت|قبل شوي|قبل قليل/i;
+const MAX_CONDUCTOR_DEPTH = 4;
+
+interface BookingResult {
+  ok: boolean;
+  message?: string;
+  booking?: Booking;
+  receiptText?: string;
+}
 
 export class DynamicSlotEngine {
   private static sessions: Map<string, PatientSession> = new Map();
 
   public static getSessionsStore(): Map<string, PatientSession> {
     return this.sessions;
+  }
+
+  /**
+   * Helper to get Baghdad Today Date String (YYYY-MM-DD)
+   */
+  public static getBaghdadTodayDate(): string {
+    return getBaghdadToday();
   }
 
   /**
@@ -25,29 +50,29 @@ export class DynamicSlotEngine {
   }
 
   /**
-   * Helper to format dynamic branch departments list
-   */
-  public static getBranchDepartmentsList(tenant: TenantConfig): string {
-    return tenant.branches.map((b, i) => {
-      const branchDoctors = tenant.doctors.filter(d => d.branchId === b.id || d.branchName === b.name);
-      const branchServices = tenant.services.filter(s =>
-        branchDoctors.some(d => d.name === s.doctorName || !s.doctorName)
-      );
-      const branchDepts = Array.from(new Set(branchServices.map(s => s.department).filter(Boolean)));
-      const deptStr = branchDepts.length > 0 ? branchDepts.join(' ، ') : (tenant.departments ? tenant.departments.join(' ، ') : 'عام');
-      return `${i + 1}. فرع ${b.name} بيه قسم (${deptStr})`;
-    }).join('\n');
-  }
-
-  /**
-   * Process incoming WhatsApp user message through Dynamic Slot Engine
+   * Process incoming WhatsApp user message through the Gemini-driven conversation conductor.
    */
   public static async processMessage(
     phone: string,
     messageText: string,
     tenant: TenantConfig
   ): Promise<string> {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const reply = await this._processMessage(phone, messageText, tenant);
+    const session = this.sessions.get(phone);
+    if (session) {
+      if (!session.recentMessages) session.recentMessages = [];
+      session.recentMessages.push({ role: 'bot', text: reply });
+      if (session.recentMessages.length > 6) session.recentMessages = session.recentMessages.slice(-6);
+    }
+    return reply;
+  }
+
+  private static async _processMessage(
+    phone: string,
+    messageText: string,
+    tenant: TenantConfig
+  ): Promise<string> {
+    const todayStr = getBaghdadToday();
     const dailyLimit = parseInt(process.env.DAILY_MESSAGE_LIMIT || '1000', 10);
     const trimmedMsg = messageText.trim();
 
@@ -63,32 +88,25 @@ export class DynamicSlotEngine {
         tenantId: tenant.tenantId,
         currentState: 'GREETING',
         status: 'IN_PROGRESS',
-        slots: {
-          patientName: crmPatient?.patientName
-        },
+        slots: { patientName: crmPatient?.patientName },
         patientName: crmPatient?.patientName,
         isReturningPatient: !!crmPatient,
         patientTag: crmPatient ? 'RETURNING' : 'NEW',
         failedNluAttempts: 0,
         lastInteractionTime: Date.now(),
         dailyMessageCount: 1,
-        lastMessageDate: todayStr
+        lastMessageDate: todayStr,
+        hasWelcomed: true,
+        recentMessages: [{ role: 'user', text: trimmedMsg }]
       };
       this.sessions.set(phone, newSession);
-
-      const branchDeptStr = this.getBranchDepartmentsList(tenant);
-      return `تم تصفير المحادثة وإعادة الضبط بنجاح عيني. 🌸
-
-صباح النور والسرور، نورت عيادة ${tenant.clinicName}. تدلل، هاي الفروع وأقسامها المتوفرة عندنا وبأي واحد تحب نحجزلك:
-
-${branchDeptStr}
-
-شوف أقرب فرع ويا قسم تحتاج وتدلل علمود أنطيك أقرب حجز، شنو الاختيار اللي يناسبك حتى نكمل باقي الإجراءات وياك؟`;
+      const activeBookings = await GoogleSheetsService.fetchActiveBookings(todayStr);
+      return this.runConductor(newSession, trimmedMsg, tenant, activeBookings, 'تم تصفير المحادثة وإعادة الضبط — رحبي بالزبون وابدئي روتين الحجز من أول سؤال (الفرع).', 0);
     }
 
     let session = this.sessions.get(phone);
 
-    // First-Touch CRM Lookup
+    // Zero-Reask Protocol: First-Touch CRM Lookup
     if (!session) {
       const crmPatient = await GoogleSheetsService.lookupPatientCRM(phone);
       session = {
@@ -96,16 +114,16 @@ ${branchDeptStr}
         tenantId: tenant.tenantId,
         currentState: 'GREETING',
         status: 'IN_PROGRESS',
-        slots: {
-          patientName: crmPatient?.patientName
-        },
+        slots: { patientName: crmPatient?.patientName },
         patientName: crmPatient?.patientName,
         isReturningPatient: !!crmPatient,
         patientTag: crmPatient ? 'RETURNING' : 'NEW',
         failedNluAttempts: 0,
         lastInteractionTime: Date.now(),
         dailyMessageCount: 1,
-        lastMessageDate: todayStr
+        lastMessageDate: todayStr,
+        hasWelcomed: false,
+        recentMessages: []
       };
       this.sessions.set(phone, session);
     } else {
@@ -115,7 +133,23 @@ ${branchDeptStr}
       } else {
         session.dailyMessageCount = (session.dailyMessageCount || 0) + 1;
       }
+      // Re-lookup CRM if patientName missing
+      if (!session.patientName || !session.slots?.patientName) {
+        const crmPatient = await GoogleSheetsService.lookupPatientCRM(phone);
+        if (crmPatient?.patientName) {
+          session.patientName = crmPatient.patientName;
+          session.isReturningPatient = true;
+          session.patientTag = 'RETURNING';
+          if (!session.slots) session.slots = {};
+          session.slots.patientName = crmPatient.patientName;
+        }
+      }
     }
+
+    // Rolling memory: remember the user's message (last 3 turns kept)
+    if (!session.recentMessages) session.recentMessages = [];
+    session.recentMessages.push({ role: 'user', text: trimmedMsg });
+    if (session.recentMessages.length > 6) session.recentMessages = session.recentMessages.slice(-6);
 
     session.lastInteractionTime = Date.now();
 
@@ -129,19 +163,8 @@ ${branchDeptStr}
       session.slots = { patientName: session.patientName };
     }
 
-    // 3. Locked Session Protocol (COMPLETED_LOCKED)
-    if (session.status === 'COMPLETED_LOCKED') {
-      const isNewBookingReq = /حجز جديد|موعد ثاني|تعديل|أغير/i.test(trimmedMsg);
-      if (isNewBookingReq) {
-        session.status = 'IN_PROGRESS';
-        session.slots = { patientName: session.patientName };
-      } else {
-        return await GeminiService.generatePoliteClosingResponse(trimmedMsg, tenant);
-      }
-    }
-
     try {
-      // 4. Voice Note Audio Transcription Support
+      // 3. Voice Note Audio Transcription Support
       let processedText = messageText;
       if (messageText.startsWith('AUDIO_BASE64:')) {
         const audioBase64 = messageText.replace('AUDIO_BASE64:', '');
@@ -151,122 +174,19 @@ ${branchDeptStr}
         }
       }
 
-      // 5. Explicit Human Handoff Request
-      const isExplicitHuman = /أريد أحكي ويا سكرتير|حولني على إنسان|أريد سكرتير|سكرتير/i.test(processedText);
-      if (isExplicitHuman) {
-        await GoogleSheetsService.logComplaint({
-          timestamp: new Date().toISOString(),
-          patientName: session.patientName || 'مراجع كريم',
-          phoneNumber: phone,
-          complaintContent: processedText,
-          status: 'PENDING'
-        });
-        return HandoffManager.executeHandoff(session, tenant);
+      // 4. Cancel / Modify Booking Protocol (deterministic fast path, works in ANY state)
+      const isCancelReq = CANCEL_REGEX.test(processedText);
+      const isModifyReq = MODIFY_REGEX.test(processedText);
+      if (isCancelReq || isModifyReq) {
+        const handled = await this.handleCancelModify(session, phone, tenant, processedText, isCancelReq, isModifyReq);
+        if (handled) return handled;
       }
 
-      // 6. One-Shot NLU Multi-Slot Extraction
-      const nluResult = await GeminiService.analyzeAndExtractSlots(processedText, session.slots, tenant);
+      // 5. Load LIVE bookings once per message (zero double-booking guard)
+      const activeBookings = await GoogleSheetsService.fetchActiveBookings(todayStr);
 
-      // Extract direct index number matching (1, 2, 3)
-      const numMatch = processedText.match(/^(?:رقم\s*)?([1-9]\d*)$/);
-      const inputIndex = numMatch ? parseInt(numMatch[1]) - 1 : -1;
-
-      // Update extracted slots safely
-      if (nluResult.extractedSlots) {
-        if (nluResult.extractedSlots.branchName) session.slots.branchName = nluResult.extractedSlots.branchName;
-        if (nluResult.extractedSlots.branchId) session.slots.branchId = nluResult.extractedSlots.branchId;
-        if (nluResult.extractedSlots.department) session.slots.department = nluResult.extractedSlots.department;
-        if (nluResult.extractedSlots.serviceName) session.slots.serviceName = nluResult.extractedSlots.serviceName;
-        if (nluResult.extractedSlots.serviceId) session.slots.serviceId = nluResult.extractedSlots.serviceId;
-        if (nluResult.extractedSlots.doctorName) session.slots.doctorName = nluResult.extractedSlots.doctorName;
-        if (nluResult.extractedSlots.doctorId) session.slots.doctorId = nluResult.extractedSlots.doctorId;
-        if (nluResult.extractedSlots.date) session.slots.date = nluResult.extractedSlots.date;
-        if (nluResult.extractedSlots.startTime) session.slots.startTime = nluResult.extractedSlots.startTime;
-
-        // Strict Patient Name Validation: Only set if NLU extracted a real 2-3 word human name
-        if (nluResult.extractedSlots.patientName && nluResult.extractedSlots.patientName.length > 2 && !/قسم|فرع|حجز|خدمة|موعد/i.test(nluResult.extractedSlots.patientName)) {
-          session.slots.patientName = nluResult.extractedSlots.patientName;
-          session.patientName = nluResult.extractedSlots.patientName;
-        }
-      }
-
-      // Handle Direct Index Selection when unselected
-      if (inputIndex >= 0) {
-        if (!session.slots.branchName && inputIndex < tenant.branches.length) {
-          session.slots.branchId = tenant.branches[inputIndex].id;
-          session.slots.branchName = tenant.branches[inputIndex].name;
-        } else if (!session.slots.serviceName) {
-          const deptServices = session.slots.department
-            ? tenant.services.filter(s => s.department === session.slots.department)
-            : tenant.services;
-          const availServices = deptServices.length > 0 ? deptServices : tenant.services;
-          if (inputIndex < availServices.length) {
-            session.slots.serviceId = availServices[inputIndex].id;
-            session.slots.serviceName = availServices[inputIndex].name;
-          }
-        }
-      }
-
-      // 7. Side-Questions Handling (ASK_FAQ) without Slot Destruction
-      if (nluResult.intent === 'ASK_FAQ') {
-        const faqAnswer = await GeminiService.answerFaq(processedText, tenant);
-        const missingPrompt = this.getMissingSlotPrompt(session, tenant);
-        return `${faqAnswer}\n\n${missingPrompt}`;
-      }
-
-      // 8. Auto-Resolve Single Branch / Service Gates
-      if (!session.slots.branchName && session.slots.department) {
-        const matchingBranches = tenant.branches.filter(b => {
-          const deptServices = tenant.services.filter(s => s.department === session.slots.department);
-          const deptDoctors = tenant.doctors.filter(d => deptServices.some(s => s.doctorName === d.name || !s.doctorName));
-          return deptDoctors.some(d => d.branchName === b.name || d.branchId === b.id);
-        });
-        if (matchingBranches.length === 1) {
-          session.slots.branchId = matchingBranches[0].id;
-          session.slots.branchName = matchingBranches[0].name;
-        }
-      }
-
-      if (!session.slots.serviceName && session.slots.department) {
-        const deptServices = tenant.services.filter(s => s.department === session.slots.department);
-        if (deptServices.length === 1) {
-          session.slots.serviceId = deptServices[0].id;
-          session.slots.serviceName = deptServices[0].name;
-        }
-      }
-
-      // Auto-Resolve Doctor if only 1 doctor works in branch & department
-      if (!session.slots.doctorName) {
-        const branchDocs = tenant.doctors.filter(d =>
-          (!session.slots?.branchId || d.branchId === session.slots.branchId || d.branchName === session.slots.branchName) &&
-          (!session.slots?.department || d.specialty?.includes(session.slots.department) || tenant.services.some(s => s.department === session.slots.department && (s.doctorName === d.name || !s.doctorName)))
-        );
-        if (branchDocs.length === 1) {
-          session.slots.doctorId = branchDocs[0].id;
-          session.slots.doctorName = branchDocs[0].name;
-        }
-      }
-
-      // Auto-Generate Earliest Slot if Doctor & Service are resolved
-      if (!session.slots.startTime && session.slots.doctorName) {
-        const doctor = tenant.doctors.find(d => d.id === session.slots?.doctorId || d.name === session.slots?.doctorName) || tenant.doctors[0];
-        const service = tenant.services.find(s => s.id === session.slots?.serviceId || s.name === session.slots?.serviceName);
-        const tomorrowDate = SlotGenerator.getTomorrowDate();
-        const slots = SlotGenerator.generateAvailableSlots(doctor, tomorrowDate, [], service?.durationMinutes || 30);
-        if (slots.length > 0) {
-          session.slots.date = slots[0].date;
-          session.slots.startTime = slots[0].startTime;
-          session.selectedSlot = slots[0];
-        }
-      }
-
-      // 9. Check if all required slots are present
-      if (this.isAllSlotsFilled(session.slots)) {
-        return await this.finalizeBooking(session, phone, tenant);
-      }
-
-      // 10. Generate Smart Prompt for Next Missing Slot
-      return this.getMissingSlotPrompt(session, tenant);
+      // 6. Gemini conductor: free conversation, validated booking decisions
+      return await this.runConductor(session, processedText, tenant, activeBookings, null, 0);
 
     } catch (error: any) {
       console.error('[DynamicSlotEngine Error]:', error);
@@ -275,124 +195,716 @@ ${branchDeptStr}
     }
   }
 
-  /**
-   * Check if all mandatory booking slots are filled
-   */
-  private static isAllSlotsFilled(slots: BookingSlots): boolean {
-    return !!(
-      (slots.branchName || slots.branchId) &&
-      (slots.serviceName || slots.serviceId) &&
-      (slots.doctorName || slots.doctorId) &&
-      slots.startTime &&
-      slots.patientName
-    );
+  // ------------------------------------------------------------------
+  // Gemini conversation conductor loop
+  // ------------------------------------------------------------------
+
+  private static async runConductor(
+    session: PatientSession,
+    userMessage: string,
+    tenant: TenantConfig,
+    activeBookings: BookedSlot[],
+    toolResult: string | null,
+    depth: number
+  ): Promise<string> {
+    if (depth > MAX_CONDUCTOR_DEPTH) {
+      return `عذراً عيني، حصل انقطاع مؤقت بالخدمة. تقدر تتواصل وتكمل حجزك مباشرة وية السكرتارية على الرقم المباشر: ${tenant.secretaryPhone || '07881015584'}`;
+    }
+
+    const s = session.slots || {};
+    session.slots = s;
+
+    const ctx: ConductTurnContext = {
+      userMessage,
+      tenant,
+      slots: s,
+      patientName: session.patientName || s.patientName,
+      isReturning: !!session.isReturningPatient,
+      recentMessages: session.recentMessages || [],
+      pendingProposal: !!session.pendingProposal,
+      proposedSlot: session.proposedSlot,
+      awaitingFinalConfirm: !!session.awaitingFinalConfirm,
+      optionsOffered: session.lastPrompt?.options,
+      recommendedService: this.recommendedService(tenant, s),
+      toolResult,
+      lockedSession: session.status === 'COMPLETED_LOCKED'
+    };
+
+    const cr = await GeminiService.conductTurn(ctx);
+
+    // Deterministic exits Gemini may have detected
+    if (cr.intent === 'cancel' || cr.intent === 'modify') {
+      const handled = await this.handleCancelModify(session, session.phoneNumber, tenant, userMessage, cr.intent === 'cancel', cr.intent === 'modify');
+      if (handled) return handled;
+    }
+    if (cr.intent === 'human') {
+      await GoogleSheetsService.logComplaint({
+        timestamp: new Date().toISOString(),
+        patientName: session.patientName || 'مراجع كريم',
+        phoneNumber: session.phoneNumber,
+        complaintContent: userMessage,
+        status: 'PENDING'
+      });
+      return HandoffManager.executeHandoff(session, tenant);
+    }
+
+    // Locked completed sessions: only RESET / cancel / modify move forward
+    if (session.status === 'COMPLETED_LOCKED') {
+      if (cr.action === 'RESET') {
+        session.status = 'IN_PROGRESS';
+        session.pendingProposal = false;
+        session.proposedSlot = undefined;
+        session.awaitingFinalConfirm = false;
+        session.lastPrompt = undefined;
+        session.slots = { patientName: session.patientName };
+        return this.runConductor(session, userMessage, tenant, activeBookings, 'الزبون يريد حجزاً جديداً — رحبي به وابدئي روتين الحجز من أول سؤال (الفرع).', depth + 1);
+      }
+      return cr.reply;
+    }
+
+    // Apply Gemini's proposed values — validated against real clinic data
+    this.applyProposed(session, cr.proposed, tenant);
+
+    // ---- Tool actions ----
+    if (cr.action === 'LIST_SERVICES') {
+      const list = this.buildServiceList(session, tenant);
+      if (list.names.length > 0) {
+        session.lastPrompt = { slotType: 'service', options: list.names, question: 'اختر الخدمة' };
+      }
+      return this.runConductor(session, userMessage, tenant, activeBookings, list.text, depth + 1);
+    }
+
+    if (cr.action === 'GET_SLOTS') {
+      const res = this.resolveSlotsForProposal(session, tenant, activeBookings);
+      if (res.ok) {
+        session.lastPrompt = { slotType: 'time', options: [], question: 'تأكيد الوقت' };
+        session.proposedSlot = res.slot;
+        session.pendingProposal = true;
+        session.awaitingFinalConfirm = false;
+        s.doctorId = res.slot.doctorId;
+        s.doctorName = res.slot.doctorName || s.doctorName;
+        s.date = res.slot.date;
+        s.startTime = res.slot.startTime;
+      }
+      return this.runConductor(session, userMessage, tenant, activeBookings, res.text, depth + 1);
+    }
+
+    if (cr.action === 'RESET' || cr.action === 'COMMIT_BOOKING' || cr.intent === 'confirm_booking') {
+      if (cr.action === 'RESET') {
+        session.slots = { patientName: session.patientName };
+        session.pendingProposal = false;
+        session.proposedSlot = undefined;
+        session.awaitingFinalConfirm = false;
+        session.lastPrompt = undefined;
+        return this.runConductor(session, userMessage, tenant, activeBookings, 'تم تصفير المحادثة — ابدئي روتين الحجز من أول سؤال (الفرع).', depth + 1);
+      }
+      return await this.commitBooking(session, session.phoneNumber, tenant, activeBookings, depth);
+    }
+
+    // ---- Intent-level handling (action NONE) ----
+    if (cr.intent === 'confirm_slot') {
+      if (!s.patientName) {
+        // Gemini already asked for the name in its reply
+        return cr.reply;
+      }
+      session.awaitingFinalConfirm = true;
+      const summary = this.buildBookingSummary(session, tenant);
+      return this.runConductor(session, userMessage, tenant, activeBookings, summary, depth + 1);
+    }
+
+    if (cr.intent === 'decline_slot' || cr.intent === 'decline_booking') {
+      session.awaitingFinalConfirm = false;
+      session.pendingProposal = false;
+      session.proposedSlot = undefined;
+      return cr.reply;
+    }
+
+    // side_question / greeting / answer / other → conversational reply only
+    return cr.reply;
   }
 
-  /**
-   * Prompt for the single next missing slot cleanly
-   */
-  private static getMissingSlotPrompt(session: PatientSession, tenant: TenantConfig): string {
+  // ------------------------------------------------------------------
+  // Validation guard: resolve Gemini's proposed values to REAL clinic entities
+  // ------------------------------------------------------------------
+
+  private static applyProposed(session: PatientSession, proposed: any, tenant: TenantConfig): void {
     const s = session.slots || {};
+    session.slots = s;
+    if (!proposed || typeof proposed !== 'object') return;
 
-    if (!s.branchName && !s.department) {
-      const branchDeptStr = this.getBranchDepartmentsList(tenant);
-      return `صباح النور والسرور، نورت عيادة ${tenant.clinicName}. تدلل، هاي الفروع وأقسامها المتوفرة عندنا وبأي واحد تحب نحجزلك:
-
-${branchDeptStr}
-
-شوف أقرب فرع ويا قسم تحتاج وتدلل علمود أنطيك أقرب حجز، شنو الاختيار اللي يناسبك حتى نكمل باقي الإجراءات وياك؟`;
+    if (proposed.branchName) {
+      const b = this.matchBranch(String(proposed.branchName), tenant);
+      if (b) {
+        const changed = s.branchName !== b.name;
+        s.branchName = b.name;
+        s.branchId = b.id;
+        if (changed) { session.pendingProposal = false; session.proposedSlot = undefined; session.awaitingFinalConfirm = false; }
+      }
     }
 
-    if (!s.serviceName) {
-      const deptServices = s.department
-        ? tenant.services.filter(srv => srv.department === s.department)
-        : tenant.services;
-      const availServices = deptServices.length > 0 ? deptServices : tenant.services;
-      const servicesList = availServices.map((srv, i) => `${i + 1}. ${srv.name}${srv.price > 0 ? ` - ${srv.price} دينار` : ''}`).join('\n\n');
-
-      return `تفضل عيني، هاي خيارات الخدمات المتاحة عندنا:
-
-${servicesList}
-
-(ونرجح لك كشفية واستشارة عامة كخيار أول لتشخيص الاحتياج الدقيق). شنو الخدمة اللي تحب تختارها؟`;
+    if (proposed.department) {
+      const d = this.matchDepartment(String(proposed.department), tenant, s);
+      if (d) s.department = d;
     }
 
-    if (!s.doctorName) {
-      const branchDocs = tenant.doctors.filter(d =>
-        (!s.branchId || d.branchId === s.branchId || d.branchName === s.branchName)
+    if (proposed.serviceName) {
+      const srv = this.matchService(String(proposed.serviceName), tenant, s);
+      if (srv) {
+        const changed = s.serviceName !== srv.name;
+        s.serviceName = srv.name;
+        s.serviceId = srv.id;
+        if (srv.department) s.department = srv.department;
+        if (changed) {
+          // service changed → downstream values (doctor/time) must be re-resolved
+          s.doctorId = undefined;
+          s.doctorName = undefined;
+          session.pendingProposal = false;
+          session.proposedSlot = undefined;
+          session.awaitingFinalConfirm = false;
+        }
+      }
+    }
+
+    if (proposed.doctorName && !s.doctorName) {
+      const doc = this.matchDoctor(String(proposed.doctorName), tenant, s);
+      if (doc) { s.doctorId = doc.id; s.doctorName = doc.name; }
+    }
+
+    if (proposed.date && !s.date) {
+      const day = interpretDayTerm(String(proposed.date));
+      if (day && day.offset >= 1 && day.offset <= 30) {
+        s.date = dateFromOffset(day.offset);
+        session.pendingProposal = false;
+        session.proposedSlot = undefined;
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(String(proposed.date))) {
+        s.date = String(proposed.date);
+        session.pendingProposal = false;
+        session.proposedSlot = undefined;
+      }
+    }
+
+    if (proposed.time) {
+      const tm = interpretTimeTerm(String(proposed.time));
+      if (tm?.kind === 'exact') {
+        s.startTime = `${String(tm.value.hh).padStart(2, '0')}:${String(tm.value.mm).padStart(2, '0')}`;
+        session.preferredTimeRange = undefined;
+        session.pendingProposal = false;
+        session.proposedSlot = undefined;
+      } else if (tm?.kind === 'range') {
+        session.preferredTimeRange = tm.value;
+        s.startTime = undefined;
+        session.pendingProposal = false;
+        session.proposedSlot = undefined;
+      }
+    }
+
+    if (proposed.patientName && !s.patientName) {
+      this.applyPatientName(session, String(proposed.patientName), tenant);
+    }
+  }
+
+  private static matchBranch(raw: string, tenant: TenantConfig): Branch | null {
+    const norm = normalizeArabicText(raw);
+    let best: { b: Branch; score: number } | null = null;
+    for (const b of tenant.branches) {
+      const score = Math.max(
+        entityMentionScore(b.name, norm),
+        entityMentionScore(b.name.replace(/^فرع\s*/, ''), norm)
       );
-      const targetDocs = branchDocs.length > 0 ? branchDocs : tenant.doctors;
-      const docsList = targetDocs.map((d, i) => `${i + 1}. دكتور/دكتورة ${d.name} (${d.specialty})`).join('\n');
-
-      return `تفضل عيني، الأطباء المتاحون في ${s.branchName || 'الفرع'}:
-
-${docsList}
-
-أيهم تفضل تحجز عنده؟`;
+      if (score > 0 && (!best || score > best.score)) best = { b, score };
     }
-
-    if (!s.startTime) {
-      const doctor = tenant.doctors.find(d => d.id === s.doctorId || d.name === s.doctorName) || tenant.doctors[0];
-      const hoursStr = this.formatWorkingHours(doctor.workingHours.startHour, doctor.workingHours.endHour);
-      return `عيني دكتور/دكتورة ${doctor.name} متوفر في ${doctor.branchName} خلال أوقات الدوام الرسمية (${hoursStr}). 
-
-شنو الوقت المناسب لك غداً حتى أثبته لك؟`;
-    }
-
-    if (!s.patientName) {
-      return `تدلل عيني! بقى بس تزودنا بـ اسمك المحترم حتى نثبت الحجز ونصدر لك كارت الموعد الرسمي! 🌸`;
-    }
-
-    return `تفضل عيني، كليلي شنو التفاصيل اللي تحب نوضحها لك؟`;
+    return best && best.score >= 0.55 ? best.b : null;
   }
 
-  /**
-   * Finalize Booking: Create Record, Sync Calendar, Save Sheet CRM, Issue Digital Receipt Card & Lock Session
-   */
-  private static async finalizeBooking(session: PatientSession, phone: string, tenant: TenantConfig): Promise<string> {
-    session.bookingCode = `BK-${Math.floor(1000 + Math.random() * 9000)}`;
+  private static matchDepartment(raw: string, tenant: TenantConfig, s: BookingSlots): string | null {
+    const norm = normalizeArabicText(raw);
+    const candidates = Array.from(new Set([
+      ...(tenant.departments || []),
+      ...this.branchDepartments(tenant, s.branchName, s.branchId)
+    ])).filter(d => normalizeArabicText(d).length >= 2);
+    let best: { name: string; score: number } | null = null;
+    for (const d of candidates) {
+      const score = entityMentionScore(d, norm);
+      if (score > 0 && (!best || score > best.score)) best = { name: d, score };
+    }
+    return best && best.score >= 0.55 ? best.name : null;
+  }
+
+  private static matchService(raw: string, tenant: TenantConfig, s: BookingSlots): Service | null {
+    const norm = normalizeArabicText(raw);
+    let candidates = tenant.services;
+    if (s.branchName) {
+      const branchServices = tenant.services.filter(srv => {
+        const doc = tenant.doctors.find(d => d.name === srv.doctorName || (srv.doctorName && (srv.doctorName.includes(d.name) || d.name.includes(srv.doctorName))));
+        return doc ? doc.branchName === s.branchName || doc.branchId === s.branchId : true;
+      });
+      if (branchServices.length > 0) candidates = branchServices;
+    }
+    if (s.department) {
+      const nd = normalizeArabicText(s.department);
+      const deptServices = candidates.filter(srv => normalizeArabicText(srv.department || '') === nd);
+      if (deptServices.length > 0) candidates = deptServices;
+    }
+    let best: { srv: Service; score: number } | null = null;
+    for (const srv of candidates) {
+      const score = entityMentionScore(srv.name, norm);
+      if (score > 0 && (!best || score > best.score)) best = { srv, score };
+    }
+    return best && best.score >= 0.6 ? best.srv : null;
+  }
+
+  private static matchDoctor(raw: string, tenant: TenantConfig, s: BookingSlots): Doctor | null {
+    const norm = normalizeArabicText(raw);
+    let best: { d: Doctor; score: number } | null = null;
+    for (const d of tenant.doctors) {
+      const score = Math.max(
+        entityMentionScore(d.name, norm),
+        entityMentionScore(d.name.replace(/^(د\.?|دكتور|دكتورة)\s*/, ''), norm)
+      );
+      if (score > 0 && (!best || score > best.score)) best = { d, score };
+    }
+    if (!best || best.score < 0.55) return null;
+    if (s.branchName) {
+      const inBranch = best.d.branchName === s.branchName || best.d.branchId === s.branchId;
+      if (!inBranch) return null;
+    }
+    return best.d;
+  }
+
+  /** Patient name — corroborated ONLY: every word evidenced in the user's text, never entity-like */
+  private static applyPatientName(session: PatientSession, candidateRaw: string, tenant: TenantConfig): void {
     const s = session.slots || {};
+    session.slots = s;
+    if (s.patientName) return;
+    const candidate = candidateRaw.trim();
+    if (JUNK_NAME_RE.test(candidate)) return;
+
+    const cNorm = normalizeArabicText(toAsciiDigits(candidate));
+    const words = cNorm.split(/\s+/).filter(w => w.length >= 2);
+    if (words.length === 0 || words.length > 4) return;
+
+    // Reject if it matches a real entity name (a branch/service is not a person)
+    const allEntityNames = [
+      ...tenant.branches.map(b => b.name),
+      ...tenant.services.map(sv => sv.name),
+      ...tenant.doctors.map(d => d.name),
+      ...(tenant.departments || [])
+    ];
+    const entityLike = allEntityNames.some(n => {
+      const nn = normalizeArabicText(toAsciiDigits(n));
+      return nn.length >= 3 && entityMentionScore(n, cNorm) >= 0.55;
+    });
+    if (entityLike) return;
+
+    // Corroboration: every name word must appear in the user's own text
+    const evWords = this.userEvidenceText(session, '').split(/\s+/).filter(w => w.length >= 2);
+    const allPresent = words.every(w => evWords.some(ew => wordFuzzyScore(w, ew) >= 0.85));
+    if (!allPresent) return;
+
+    s.patientName = candidate;
+    session.patientName = candidate;
+  }
+
+  /** All user texts in the rolling memory (last ~3 user messages) + optional current text */
+  private static userEvidenceText(session: PatientSession, currentText: string): string {
+    const users = (session.recentMessages || []).filter(t => t.role === 'user').map(t => t.text);
+    return [...users, currentText].join(' ');
+  }
+
+  // ------------------------------------------------------------------
+  // Dynamic helpers fed to Gemini (data only, no conversation control)
+  // ------------------------------------------------------------------
+
+  /** Dynamically pick a consultation-type service (generic concept keywords only) or the cheapest */
+  private static recommendedService(tenant: TenantConfig, s: BookingSlots): string | null {
+    const candidates = this.availableServicesFor(tenant, s);
+    if (candidates.length === 0) return null;
+    const concept = candidates.find(sv => /^(كشف|فحص|استشار|تشخيص|عرض)/.test(normalizeArabicText(sv.name)));
+    if (concept) return concept.name;
+    return [...candidates].sort((a, b) => a.price - b.price)[0].name;
+  }
+
+  private static buildServiceList(session: PatientSession, tenant: TenantConfig): { text: string; names: string[] } {
+    const services = this.availableServicesFor(tenant, session.slots || {});
+    const names = services.map(sv => sv.name);
+    const lines = services.map((sv, i) => {
+      const doc = tenant.doctors.find(d => d.name === sv.doctorName);
+      return `${i + 1}. ${sv.name} - ${sv.price > 0 ? sv.price + ' دينار' : 'حسب الفحص'} (د. ${sv.doctorName || 'العيادة'}${doc ? ' - ' + doc.branchName : ''})`;
+    });
+    return { text: `قائمة الخدمات المتاحة حالياً (اعرضيها واطلبي من الزبون اختيار رقم أو اسم):\n${lines.join('\n')}`, names };
+  }
+
+  private static buildBookingSummary(session: PatientSession, tenant: TenantConfig): string {
+    const s = session.slots || {};
+    const branch = tenant.branches.find(b => b.id === s.branchId || b.name === s.branchName);
+    const doctor = tenant.doctors.find(d => d.id === s.doctorId || d.name === s.doctorName);
+    const service = tenant.services.find(sv => sv.id === s.serviceId || sv.name === s.serviceName);
+    const dateLabel = s.date === getBaghdadTomorrow() ? 'غداً' : s.date;
+    return `ملخص الحجز النهائي للزبون:
+- الفرع: ${branch?.name || s.branchName || 'غير محدد'}
+- القسم: ${s.department || 'عام'}
+- الخدمة: ${service?.name || s.serviceName || 'غير محدد'}
+- الطبيب: ${doctor?.name || s.doctorName || 'غير محدد'}
+- الموعد: ${dateLabel || s.date} الساعة ${s.startTime || ''}
+- الاسم: ${s.patientName || 'غير محدد'}
+اعرضي هذا الملخص بوضوح واسألي الزبون: "نثبت كلشي تمام؟" ولا تطلبي التثبيت قبل تأكيده النهائي.`;
+  }
+
+  // ------------------------------------------------------------------
+  // Tool: live slot resolution (single or multiple doctors → earliest)
+  // ------------------------------------------------------------------
+
+  private static resolveSlotsForProposal(
+    session: PatientSession,
+    tenant: TenantConfig,
+    activeBookings: BookedSlot[]
+  ): { ok: boolean; text: string; slot?: TimeSlot } {
+    const s = session.slots || {};
+    const service = tenant.services.find(sv => sv.id === s.serviceId || sv.name === s.serviceName);
+    const duration = service?.durationMinutes || 30;
+
+    let doctors: Doctor[] = [];
+    if (s.doctorName) {
+      const d = tenant.doctors.find(doc => doc.id === s.doctorId || doc.name === s.doctorName);
+      if (d) doctors = [d];
+    }
+    if (doctors.length === 0 && service?.doctorName) {
+      const d = tenant.doctors.find(doc => doc.name === service.doctorName! || doc.name.includes(service.doctorName!) || service.doctorName!.includes(doc.name));
+      if (d) doctors = [d];
+    }
+    if (doctors.length === 0) {
+      doctors = tenant.doctors.filter(d =>
+        (!s.branchName || d.branchName === s.branchName || d.branchId === s.branchId) &&
+        (!s.department || d.specialty?.includes(s.department) || tenant.services.some(sv => normalizeArabicText(sv.department || '') === normalizeArabicText(s.department || '') && (sv.doctorName === d.name || !sv.doctorName)))
+      );
+    }
+    doctors = doctors.filter(Boolean);
+    if (doctors.length === 0) {
+      return { ok: false, text: 'ما لقينا طبيب مطابق للاختيار — اطلبي من الزبون تأكيد الطبيب أو الخدمة.' };
+    }
+
+    const fromDate = s.date && s.date >= getBaghdadTomorrow() ? s.date : getBaghdadTomorrow();
+    let best: { doc: Doctor; slot: TimeSlot } | null = null;
+    const options: string[] = [];
+
+    for (const doc of doctors) {
+      let slots = this.earliestAvailableSlots(doc, fromDate, activeBookings, duration, 7, 3, session.preferredTimeRange);
+      if (s.startTime) {
+        const exact = slots.find(sl => sl.startTime === s.startTime);
+        if (exact) {
+          slots = [exact];
+        } else {
+          const anyDay = this.earliestAvailableSlots(doc, fromDate, activeBookings, duration, 14, 1);
+          const near = anyDay.find(sl => sl.startTime === s.startTime);
+          if (near) slots = [near];
+        }
+      }
+      for (const sl of slots) {
+        const label = `${sl.date === getBaghdadTomorrow() ? 'غداً' : sl.date} الساعة ${sl.startTime} مع ${doc.name}`;
+        options.push(label);
+        if (!best || (sl.date + sl.startTime) < (best.slot.date + best.slot.startTime)) best = { doc, slot: sl };
+      }
+    }
+
+    if (!best) {
+      return { ok: false, text: 'حالياً لا توجد مواعيد شاغرة قريبة — اعتذري للزبون واعرضي عليه التواصل مع السكرتير.' };
+    }
+
+    const uniqueOptions = Array.from(new Set(options)).slice(0, 3);
+    return {
+      ok: true,
+      slot: { ...best.slot, doctorId: best.doc.id, doctorName: best.doc.name },
+      text: `أقرب المواعيد المتاحة حالياً (حقيقية وبدون تعارض):
+${uniqueOptions.join('\n')}
+اعرضي الأقرب على الزبون واسأليه إذا يناسبه (موافق؟).`
+    };
+  }
+
+  private static branchDepartments(tenant: TenantConfig, branchName?: string, branchId?: string): string[] {
+    const branchDoctors = tenant.doctors.filter(d => d.branchId === branchId || d.branchName === branchName);
+    const branchServices = tenant.services.filter(s =>
+      branchDoctors.some(d => d.name === s.doctorName || !s.doctorName)
+    );
+    const depts = Array.from(new Set(branchServices.map(s => s.department).filter(Boolean)));
+    return depts.length > 0 ? depts : (tenant.departments || []);
+  }
+
+  private static availableServicesFor(tenant: TenantConfig, s: BookingSlots): Service[] {
+    const normDept = (d?: string) => normalizeArabicText(d || '');
+    let services = tenant.services;
+    if (s.branchName || s.branchId) {
+      const branchDocs = tenant.doctors.filter(d => d.branchId === s.branchId || d.branchName === s.branchName);
+      const branchServices = tenant.services.filter(srv =>
+        branchDocs.some(d => d.name === srv.doctorName || !srv.doctorName)
+      );
+      if (branchServices.length > 0) services = branchServices;
+    }
+    if (s.department) {
+      const deptServices = services.filter(srv => normDept(srv.department) === normDept(s.department));
+      if (deptServices.length > 0) services = deptServices;
+    }
+    return services;
+  }
+
+  // ------------------------------------------------------------------
+  // Commit path with hard guards + fresh re-check + warm receipt
+  // ------------------------------------------------------------------
+
+  private static async commitBooking(
+    session: PatientSession,
+    phone: string,
+    tenant: TenantConfig,
+    activeBookings: BookedSlot[],
+    depth: number
+  ): Promise<string> {
+    const s = session.slots || {};
+
+    // Hard completeness guard (real values only — never "undefined")
+    const missing: string[] = [];
+    if (!s.branchName) missing.push('الفرع');
+    if (!s.serviceName) missing.push('الخدمة');
+    if (!s.doctorName) missing.push('الطبيب');
+    if (!s.patientName) missing.push('الاسم');
+    if (!s.startTime && !session.proposedSlot) missing.push('الوقت');
+    if (missing.length > 0) {
+      const note = `لا يمكن التثبيت بعد — ناقص من الزبون: ${missing.join('، ')}. اطلبي هذه المعلومات بهدوء قبل التثبيت.`;
+      return this.runConductor(session, '', tenant, activeBookings, note, depth + 1);
+    }
+
+    const res = await this.finalizeBooking(session, phone, tenant);
+
+    if (res.ok && res.booking) {
+      session.awaitingFinalConfirm = false;
+      return await this.receiptViaGemini(session, tenant, res.booking, res.receiptText || '');
+    }
+
+    // Slot was taken between proposal and commit → Gemini apologizes + offers real alternatives
+    if (res.message && CONFLICT_RE.test(res.message)) {
+      const fresh = await GoogleSheetsService.fetchActiveBookings(getBaghdadToday());
+      // Clear time constraint so the resolver finds the truly earliest available slot (not the same time on a different day)
+      s.startTime = undefined;
+      const alt = this.resolveSlotsForProposal(session, tenant, fresh);
+      if (alt.ok && alt.slot) {
+        // stage the alternative so "ثبت الأقرب" commits it directly next turn
+        session.proposedSlot = alt.slot;
+        session.pendingProposal = true;
+        session.awaitingFinalConfirm = false;
+        s.doctorId = alt.slot.doctorId;
+        s.doctorName = alt.slot.doctorName || s.doctorName;
+        s.date = alt.slot.date;
+        s.startTime = alt.slot.startTime;
+      }
+      const note = `الموعد الذي أردتِ تثبيته انحجز قبل شوي من مراجع آخر.
+${alt.ok ? 'البدائل المتاحة حالياً:\n' + alt.text : alt.text}
+اعتذري للزبون بصدق واعرضي عليه هذه البدائل (أو الأقرب إذا طلب "ثبت الأقرب").`;
+      return await this.runConductor(session, '', tenant, fresh, note, depth + 1);
+    }
+
+    return res.message || `عذراً عيني، صار خلل تقني مؤقت أثناء تثبيت الحجز. تواصل مع السكرتارية: ${tenant.secretaryPhone}`;
+  }
+
+  private static async receiptViaGemini(session: PatientSession, tenant: TenantConfig, booking: Booking, fallbackReceipt: string): Promise<string> {
+    try {
+      const receiptData = `تم تثبيت الحجز رسمياً في النظام قبل هذا الرد.
+- كود الحجز: ${booking.bookingCode}
+- الاسم: ${booking.patientName}
+- رقم الهاتف: ${booking.patientPhone}
+- الفرع: ${booking.branchName}
+- القسم: ${booking.department || 'عام'}
+- الخدمة: ${booking.serviceName}
+- الطبيب: ${booking.doctorName}
+- الموعد: ${booking.date} الساعة ${booking.startTime}
+- الموقع: ${tenant.branches.find(b => b.name === booking.branchName)?.locationLink || 'داخل العيادة'}
+تعليمات ما قبل الحضور: ${tenant.services.find(sv => sv.name === booking.serviceName)?.preAppointmentInstructions || 'يرجى الحضور قبل الموعد بـ 15 دقيقة مصحوباً بالهوية الشخصية.'}`;
+      const cr = await GeminiService.conductTurn({
+        userMessage: '',
+        tenant,
+        slots: session.slots || {},
+        patientName: booking.patientName,
+        isReturning: !!session.isReturningPatient,
+        recentMessages: session.recentMessages || [],
+        pendingProposal: false,
+        proposedSlot: null,
+        awaitingFinalConfirm: false,
+        toolResult: receiptData,
+        bookingCommitted: true
+      });
+      return cr.reply && cr.reply.length > 10 ? cr.reply : fallbackReceipt;
+    } catch {
+      return fallbackReceipt;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Cancel / modify protocol (extracted, used by regex fast-path + Gemini intent)
+  // ------------------------------------------------------------------
+
+  private static async handleCancelModify(
+    session: PatientSession,
+    phone: string,
+    tenant: TenantConfig,
+    text: string,
+    isCancelReq: boolean,
+    isModifyReq: boolean
+  ): Promise<string | null> {
+    const activeBooking = await GoogleSheetsService.findActiveBookingByPhone(phone);
+    if (!activeBooking) {
+      return `عيني ما لقينا حجز نشط مسجل بهاد الرقم. إذا تحب تثبت حجز جديد، كليلي شنو القسم أو الخدمة المحتاجها وتدلل!`;
+    }
+    const cancelResult = await GoogleSheetsService.cancelBookingInSheet(activeBooking.bookingCode);
+    if (cancelResult) {
+      if (cancelResult.calendarEventId && cancelResult.calendarId) {
+        await GoogleCalendarService.cancelAppointment(cancelResult.calendarId, cancelResult.calendarEventId);
+      }
+      await GoogleSheetsService.logAnalytics('BOOKING_CANCELLED', `Cancelled by patient: ${activeBooking.bookingCode}`);
+    }
+    if (session.selectedSlot) SlotGenerator.unlockSlot(session.selectedSlot);
+    session.proposedSlot = undefined;
+    session.pendingProposal = false;
+    session.awaitingFinalConfirm = false;
+
+    if (isCancelReq) {
+      if (cancelResult) {
+        this.sessions.delete(phone);
+        return `تم إلغاء حجزك السابق (${activeBooking.bookingCode}) بنجاح عيني. إذا حبيت تحجز موعد جديد بأي وقت، إحنا بانتظارك برحابة صدر! 🌸`;
+      }
+      return `عيني حاولنا نلغي الحجز لكود ${activeBooking.bookingCode} وبس صار خلل بالشبكة، راح نحولك لـ السكرتير للتأكيد المباشر.`;
+    } else {
+      if (cancelResult) {
+        session.status = 'IN_PROGRESS';
+        session.slots = { patientName: session.patientName };
+        session.selectedSlot = undefined;
+        session.lastPrompt = undefined;
+        return `تم إلغاء حجزك السابق (${activeBooking.bookingCode}) لتعديل الموعد. تفضل أخبرني شنو الخدمة أو الفرع المناسب إلك لتثبيت موعدك الجديد! ✨`;
+      }
+      return `عيني حاولنا نلغي الحجز لكود ${activeBooking.bookingCode} وبس صار خلل بالشبكة، راح نحولك لـ السكرتير للتأكيد المباشر.`;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Finalize: fresh re-check → atomic lock → calendar-first → sheet+CRM → receipt
+  // ------------------------------------------------------------------
+
+  private static async generateUniqueBookingCode(activeBookings: BookedSlot[]): Promise<string> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = `BK-${Math.floor(10000 + Math.random() * 90000)}`;
+      if (!activeBookings.some(b => b.bookingCode === code)) return code;
+    }
+    return `BK-${Date.now().toString().slice(-5)}`;
+  }
+
+  private static async finalizeBooking(session: PatientSession, phone: string, tenant: TenantConfig): Promise<BookingResult> {
+    const s = session.slots || {};
+
+    // ---- HARD GUARD: refuse to commit missing/placeholder values ----
+    if (!s.patientName || ['undefined', 'null', ''].includes(String(s.patientName))) {
+      return { ok: false, message: `تدلل عيني! بقى بس تزودنا بـ اسمك المحترم حتى نثبت الحجز ونصدر لك كارت الموعد الرسمي! 🌸` };
+    }
 
     const branch = tenant.branches.find(b => b.id === s.branchId || b.name === s.branchName) || tenant.branches[0];
-    const doctor = tenant.doctors.find(d => d.id === s.doctorId || d.name === s.doctorName) || tenant.doctors[0];
+    const doctor = tenant.doctors.find(d => d.id === s.doctorId || d.name === s.doctorName) || (tenant.branches[0] ? tenant.doctors[0] : undefined);
     const service = tenant.services.find(srv => srv.id === s.serviceId || srv.name === s.serviceName) || tenant.services[0];
 
-    const defaultStartH = doctor.workingHours?.startHour || 9;
-    const defaultStartTime = s.startTime || `${defaultStartH.toString().padStart(2, '0')}:00`;
+    if (!doctor) {
+      return { ok: false, message: `عذراً عيني، تواصل مع السكرتير لتثبيت موعدك: ${tenant.secretaryPhone}` };
+    }
+
+    // ---- Fresh availability re-check + atomic lock at commit time (double-booking guard) ----
+    const freshBookings = await GoogleSheetsService.fetchActiveBookings(getBaghdadToday());
+    let slot = session.proposedSlot || session.selectedSlot;
+    const bookingDate = s.date || slot?.date || getBaghdadTomorrow();
+
+    if (!slot) {
+      const slots = SlotGenerator.generateAvailableSlots(doctor, bookingDate, freshBookings, service?.durationMinutes || 30);
+      slot = slots.find(sl => sl.startTime === s.startTime) || slots[0];
+    }
+    if (!slot) {
+      return { ok: false, message: `عذراً عيني، هالموعد انحجز قبل قليل. أقرب موعد متاح إلك: ${this.slotListText(doctor, getBaghdadTomorrow(), freshBookings, service?.durationMinutes || 30)}` };
+    }
+
+    const startTime = s.startTime || slot.startTime;
+
+    // Atomic lock: if someone else took this exact slot between proposal and commit -> propose next
+    if (!SlotGenerator.lockSlotTemporarily(slot, undefined, phone)) {
+      const next = this.earliestAvailableSlot(doctor, bookingDate, freshBookings, service?.durationMinutes || 30);
+      if (next) {
+        session.proposedSlot = next;
+        session.pendingProposal = true;
+        return { ok: false, message: `عيني هالوقت اللي طلبته انحجز قبل شوي 😅. أقرب موعد متاح إلك: ${next.date === getBaghdadTomorrow() ? 'غداً' : next.date} الساعة ${next.startTime}. تريد أحجزه إلك؟` };
+      }
+      return { ok: false, message: `عذراً عيني، المواعيد امتلأت فجأة. تواصل مع السكرتير لتثبيت موعد بديل: ${tenant.secretaryPhone}` };
+    }
+
+    // If user-specified time no longer free (taken between proposal & commit) -> propose next
+    const stillFree = SlotGenerator.generateAvailableSlots(doctor, bookingDate, freshBookings, service?.durationMinutes || 30, slot.slotId)
+      .some(sl => sl.startTime === startTime);
+    if (!stillFree) {
+      const next = this.earliestAvailableSlot(doctor, bookingDate, freshBookings, service?.durationMinutes || 30);
+      if (next) {
+        session.proposedSlot = next;
+        session.pendingProposal = true;
+        return { ok: false, message: `عيني هالوقت اللي طلبته انحجز قبل شوي 😅. أقرب موعد متاح إلك: ${next.date === getBaghdadTomorrow() ? 'غداً' : next.date} الساعة ${next.startTime}. تريد أحجزه إلك؟` };
+      }
+      return { ok: false, message: `عذراً عيني، المواعيد امتلأت فجأة. تواصل مع السكرتير لتثبيت موعد بديل: ${tenant.secretaryPhone}` };
+    }
+
+    // ---- Unique booking code ----
+    session.bookingCode = await this.generateUniqueBookingCode(freshBookings);
+
     const effectiveDuration = Math.ceil((service.durationMinutes || 30) * 1.2);
 
-    const [startH, startMin] = defaultStartTime.split(':').map(Number);
+    const [startH, startMin] = startTime.split(':').map(Number);
     const totalEndMin = (startH * 60 + (startMin || 0)) + effectiveDuration;
     const computedEndH = Math.floor(totalEndMin / 60).toString().padStart(2, '0');
     const computedEndM = (totalEndMin % 60).toString().padStart(2, '0');
     const computedEndTime = `${computedEndH}:${computedEndM}`;
 
-    const bookingDate = s.date || SlotGenerator.getTomorrowDate();
-
     const booking: Booking = {
       bookingCode: session.bookingCode,
       tenantId: tenant.tenantId,
       patientPhone: phone,
-      patientName: s.patientName || session.patientName || 'مراجع كريم',
+      patientName: s.patientName,
       patientTag: session.isReturningPatient ? 'RETURNING' : 'NEW',
-      branchId: branch.id,
-      branchName: branch.name,
+      branchId: branch?.id || 'b_1',
+      branchName: branch?.name || 'الفرع الرئيسي',
       doctorId: doctor.id,
       doctorName: doctor.name,
-      serviceId: service.id,
-      serviceName: service.name,
+      serviceId: service?.id || 's_1',
+      serviceName: service?.name || 'كشفية عامة',
       department: s.department || 'عام',
       date: bookingDate,
-      startTime: defaultStartTime,
+      startTime,
       endTime: computedEndTime,
       durationMinutes: effectiveDuration,
       status: 'CONFIRMED',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      calendarId: doctor.calendarId || 'primary'
     };
 
-    // Calendar-First Fix: Sync Calendar & Sheet
-    await GoogleCalendarService.syncAppointment(booking, doctor);
-    await GoogleSheetsService.saveBooking(booking);
+    // Calendar-First Sync Architecture: Sync Google Calendar FIRST, capture event ID for rollback & cancellation
+    let calendarEventId: string | null = null;
+    try {
+      calendarEventId = await GoogleCalendarService.syncAppointment(booking, doctor);
+      booking.calendarEventId = calendarEventId || undefined;
+      if (!calendarEventId) {
+        await GoogleSheetsService.logSystemError(`Calendar event NOT created for booking ${booking.bookingCode} (${booking.patientName} @ ${bookingDate} ${startTime})`, phone, booking.patientName);
+      }
+    } catch (calErr: any) {
+      await GoogleSheetsService.logSystemError(`Calendar sync error for ${booking.bookingCode}: ${calErr?.message || String(calErr)}`, phone, booking.patientName);
+    }
+
+    // Atomic Commit to the Bookings sheet
+    const saved = await GoogleSheetsService.saveBooking(booking);
+
+    if (!saved) {
+      // Rollback: delete the just-created calendar event (no orphan events in the doctor's calendar)
+      if (calendarEventId && doctor?.calendarId) {
+        await GoogleCalendarService.cancelAppointment(doctor.calendarId, calendarEventId);
+      }
+      return { ok: false, message: `عذراً عيني، صار خلل تقني مؤقت أثناء تثبيت الحجز. تقدر تتواصل مع السكرتارية للتثبيت المباشر: ${tenant.secretaryPhone}` };
+    }
+
+    // Update (or create) patient record in Patients_CRM — accumulates TotalBookings & LastVisitDate
     await GoogleSheetsService.savePatientCRM({
       phoneNumber: phone,
       patientName: booking.patientName,
@@ -400,27 +912,106 @@ ${docsList}
       totalBookings: 1,
       lastVisitDate: booking.date
     });
-    await GoogleSheetsService.logAnalytics('BOOKING_CONFIRMED', `Booking: ${booking.bookingCode}, Patient: ${booking.patientName}, Doctor: ${booking.doctorName}`);
+    await GoogleSheetsService.logAnalytics('BOOKING_CONFIRMED', `Booking: ${booking.bookingCode}, Patient: ${booking.patientName}, Doctor: ${booking.doctorName}, Date: ${bookingDate} ${startTime}`);
+
+    // Release the in-memory lock (the booking now lives in the sheet)
+    SlotGenerator.unlockSlot(slot);
 
     // Set Session Status to COMPLETED_LOCKED
     session.status = 'COMPLETED_LOCKED';
+    session.pendingProposal = false;
+    session.proposedSlot = undefined;
+    session.awaitingFinalConfirm = false;
+    session.lastPrompt = undefined;
 
-    return `تم تثبيت حجزك بنجاح وبشكل نهائي عيني! ✅
+    const dateLabel = bookingDate === getBaghdadTomorrow() ? 'غداً' : bookingDate;
 
-📋 تفاصيل موعدك:
+    const receiptText = `تم تثبيت حجزك بنجاح وبشكل نهائي عيني! ✅
+
+📋 تفاصيل موعدك الرسمية:
+- كود الحجز: ${booking.bookingCode}
 - الاسم: ${booking.patientName}
 - رقم الهاتف: ${phone}
-- الفرع: ${branch.name}
-- الطبيب: ${doctor.name}
-- الخدمة: ${service.name}
-- الموعد: غداً ${booking.date} الساعة ${defaultStartTime}
-- كود الحجز: ${booking.bookingCode}
+- الفرع: ${booking.branchName}
+- الطبيب: ${booking.doctorName}
+- الخدمة: ${booking.serviceName}
+- الموعد: ${dateLabel} ${bookingDate} الساعة ${startTime}
 
-📍 رابط خريطة العيادة الجغرافي:
-${branch.locationLink || 'الفرع الرئيسي'}
+📍 موقع العيادة الجغرافي:
+${branch?.locationLink || 'الفرع الرئيسي'}
 
-⚠️ تعليمات هامة قبل الحضور: ${service.preAppointmentInstructions || 'يرجى الحضور قبل الموعد بـ 15 دقيقة مصحوباً بالهوية الشخصية.'}
+⚠️ تعليمات وقائية قبل الحضور:
+${service?.preAppointmentInstructions || 'يرجى الحضور قبل الموعد بـ 15 دقيقة مصحوباً بالهوية الشخصية.'}
 
-ننتظرك تنورنا بـ العيادة! 🌸`;
+تم تسجيل موعدك بالشيت والتقويم الرسمي ونرسل لك تذكير قبل الموعد. ننتظرك تنورنا بـ العيادة! 🌸`;
+
+    return { ok: true, booking, receiptText };
+  }
+
+  private static availableSlotsOn(
+    doctor: Doctor,
+    date: string,
+    activeBookings: BookedSlot[],
+    duration: number
+  ): TimeSlot[] {
+    return SlotGenerator.generateAvailableSlots(doctor, date, activeBookings, duration);
+  }
+
+  private static slotListText(
+    doctor: Doctor,
+    fromDate: string,
+    activeBookings: BookedSlot[],
+    duration: number,
+    scanDays: number = 3
+  ): string {
+    const slots = this.earliestAvailableSlots(doctor, fromDate, activeBookings, duration, scanDays);
+    if (slots.length === 0) return 'لا توجد مواعيد شاغرة قريباً';
+    return slots.map(sl => `${sl.date === getBaghdadTomorrow() ? 'غداً' : sl.date} الساعة ${sl.startTime}`).join(' ، ');
+  }
+
+  private static earliestAvailableSlots(
+    doctor: Doctor,
+    fromDate: string,
+    activeBookings: BookedSlot[],
+    duration: number,
+    scanDays: number = 7,
+    limit: number = 3,
+    preferredRange?: { startMinute: number; endMinute: number }
+  ): TimeSlot[] {
+    const result: TimeSlot[] = [];
+    const today = getBaghdadToday();
+    let cursor = fromDate < today ? today : fromDate;
+    let guard = 0;
+    while (result.length < limit && guard < scanDays) {
+      const slots = this.availableSlotsOn(doctor, cursor, activeBookings, duration);
+      for (const sl of slots) {
+        result.push(sl);
+        if (result.length >= limit) break;
+      }
+      cursor = formatDate(addDays(new Date(cursor), 1));
+      guard++;
+    }
+    if (preferredRange) {
+      const inRange = result.filter(sl => {
+        const [h, m] = sl.startTime.split(':').map(Number);
+        const minute = h * 60 + (m || 0);
+        return minute >= preferredRange.startMinute && minute + Math.ceil(duration * 1.2) <= preferredRange.endMinute;
+      });
+      const outRange = result.filter(sl => !inRange.includes(sl));
+      return [...inRange, ...outRange];
+    }
+    return result;
+  }
+
+  private static earliestAvailableSlot(
+    doctor: Doctor,
+    fromDate: string,
+    activeBookings: BookedSlot[],
+    duration: number,
+    preferredRange?: { startMinute: number; endMinute: number },
+    excludeSlotId?: string
+  ): TimeSlot | undefined {
+    return this.earliestAvailableSlots(doctor, fromDate, activeBookings, duration, 7, 3, preferredRange)
+      .find(sl => !excludeSlotId || sl.slotId !== excludeSlotId);
   }
 }

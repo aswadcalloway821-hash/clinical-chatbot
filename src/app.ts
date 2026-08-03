@@ -30,7 +30,7 @@ app.get('/health', (req, res) => {
     console.log(`[Tenant Loaded Successfully]: Clinic = "${tenant.clinicName}", Branches = ${tenant.branches.map(b => b.name).join(', ')}`);
 
     // Register WhatsApp sender callback for Watchdog
-    WatchdogService.registerSendCallback(async (phone: string, text: string) => {
+    const sendWhatsAppText = async (phone: string, text: string) => {
       const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
       const token = process.env.WHATSAPP_ACCESS_TOKEN;
       if (phoneId && token) {
@@ -40,14 +40,16 @@ app.get('/health', (req, res) => {
           body: JSON.stringify({ messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: text } })
         });
       }
-    });
+    };
+    WatchdogService.registerSendCallback(sendWhatsAppText);
 
     WatchdogService.startMonitoring(DynamicSlotEngine.getSessionsStore(), tenant);
     console.log('[Watchdog Service] Started session monitor worker with Live WhatsApp Dispatcher.');
 
-    // Initialize 4-Hour Pre-Appointment Scheduled Reminders
+    // Initialize 4-Hour Pre-Appointment Scheduled Reminders (actually dispatches via WhatsApp)
+    ReminderJob.registerSendCallback(sendWhatsAppText);
     ReminderJob.startScheduler();
-    console.log('[Reminder Service] Started 4-hour pre-appointment background scheduler worker.');
+    console.log('[Reminder Service] Started 4-hour pre-appointment background scheduler worker with Live WhatsApp Dispatcher.');
   } catch (err) {
     console.error('🚨 [Startup Error Loading Tenant Config]:', err);
   }

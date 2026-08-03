@@ -8,6 +8,30 @@ import { Router } from "express";
 
 // src/services/gemini.ts
 import { GoogleGenerativeAI } from "@google/generative-ai";
+
+// src/utils/baghdad-time.ts
+function getBaghdadNow() {
+  return new Date((/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "Asia/Baghdad" }));
+}
+function formatDate(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+function getBaghdadToday() {
+  return formatDate(getBaghdadNow());
+}
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+function getBaghdadTomorrow() {
+  return formatDate(addDays(getBaghdadNow(), 1));
+}
+
+// src/services/gemini.ts
 import dotenv from "dotenv";
 dotenv.config();
 var apiKey = process.env.GEMINI_API_KEY || "";
@@ -201,35 +225,6 @@ var GeminiService = class {
     }
   }
   /**
-   * Generate Authentic Iraqi Dialect response ("سارة الرقمية") using real TenantConfig (Zero Dummy Data!)
-   */
-  static async generateIraqiResponse(slicedContext, tenant) {
-    const prompt = `
-\u0627\u0644\u0645\u0631\u0643\u0632 \u0627\u0644\u0637\u0628\u064A \u0627\u0644\u062D\u0642\u064A\u0642\u064A: ${slicedContext.clinicName}
-\u0627\u0644\u062E\u0637\u0648\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629: ${slicedContext.step}
-\u0627\u0644\u062A\u0639\u0644\u064A\u0645\u0627\u062A \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629 \u0645\u0646\u0643\u0650 \u0627\u0644\u0622\u0646: ${slicedContext.stepInstruction}
-\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u062E\u0637\u0648\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629: ${JSON.stringify(slicedContext.stepData)}
-\u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0645\u0631\u064A\u0636 \u0627\u0644\u0623\u062E\u064A\u0631\u0629: "${slicedContext.userMessage}"
-
-\u0642\u0627\u0639\u062F\u0629 \u0635\u0627\u0631\u0645\u0629: \u0625\u0630\u0627 \u0643\u0627\u0646\u062A \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u062E\u0637\u0648\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629 \u062A\u062D\u062A\u0648\u064A \u0639\u0644\u0649 "branchDepartmentsList"\u060C \u0627\u0646\u0633\u062E\u064A \u0646\u0635 \u0627\u0644\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u0645\u062A\u0631\u0642\u0645\u0629 \u0627\u0644\u0645\u0648\u062C\u0648\u062F \u062F\u0627\u062E\u0644 branchDepartmentsList \u0633\u0637\u0631 \u0628\u0633\u0637\u0631 \u0643\u0645\u0627 \u0647\u0648 \u0628\u0627\u0644\u0636\u0628\u0637 \u062F\u0648\u0646 \u062A\u063A\u064A\u064A\u0631\u0647 \u0623\u0648 \u0627\u0633\u062A\u0628\u062F\u0627\u0644\u0647 \u0628\u0627\u0644\u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0639\u0627\u062F\u064A\u0629!
-\u0635\u0648\u063A\u064A \u0631\u062F\u0643\u0650 \u0628\u0627\u0644\u0643\u0627\u0645\u0644 \u0628\u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0645\u062D\u0628\u0648\u0628\u0629 \u0648\u0639\u0641\u0648\u064A\u0629 \u0644\u0640 "${slicedContext.clinicName}"\u060C \u0628\u062F\u0648\u0646 \u0623\u064A \u0646\u062C\u0648\u0645 \u0623\u0648 \u062E\u0637\u0648\u0637 \u0623\u0648 \u0631\u0645\u0648\u0632 \u062A\u0646\u0635\u064A\u0635 \u0623\u0648 Markdown.
-\u0623\u062C\u064A\u0628\u064A \u0627\u0644\u0645\u0631\u064A\u0636 \u0645\u0628\u0627\u0634\u0631\u0629 \u0628\u062D\u0633\u0628 \u0627\u0644\u062A\u0639\u0644\u064A\u0645\u0627\u062A \u0628\u062F\u0648\u0646 \u0625\u0636\u0627\u0641\u0629 \u0623\u064A \u0639\u0628\u0627\u0631\u0629 \u062A\u0631\u062D\u064A\u0628\u064A\u0629 \u0623\u0648 \u062E\u062A\u0627\u0645\u064A\u0629 \u0645\u0643\u0631\u0631\u0629 \u0641\u064A \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0631\u062F!
-`;
-    try {
-      const modelName = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        systemInstruction: this.getSystemInstruction(tenant)
-      });
-      const response = await model.generateContent(prompt);
-      const reply = response.response.text()?.trim() || "";
-      return this.cleanMarkdown(reply);
-    } catch (error) {
-      console.error("Gemini NLG Error:", error);
-      return `\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A\u060C \u0623\u0646\u0627 \u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u062E\u062A\u064A\u0627\u0631\u0643 \u0644\u062A\u0643\u0645\u0644\u0629 \u0627\u0644\u062D\u062C\u0632.`;
-    }
-  }
-  /**
    * Answer FAQ dynamically based on Google Sheets TenantConfig
    */
   static async answerFaq(userMessage, tenant) {
@@ -255,6 +250,171 @@ var GeminiService = class {
     } catch (error) {
       return `\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A\u060C \u064A\u0645\u0643\u0646\u0643 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0628\u0627\u0644\u0633\u0643\u0631\u062A\u0627\u0631\u064A\u0629 \u0644\u0645\u0639\u0631\u0641\u0629 \u0643\u0627\u0641\u0629 \u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644: ${tenant.secretaryPhone}.`;
     }
+  }
+  // ------------------------------------------------------------------
+  // Conversation Conductor: Gemini controls the dialogue via prompt.
+  // No fixed ladder, no hardcoded entity names — everything is injected
+  // dynamically from the tenant data every turn.
+  // ------------------------------------------------------------------
+  static INTENTS = ["answer", "side_question", "confirm_slot", "decline_slot", "confirm_booking", "decline_booking", "cancel", "modify", "human", "greeting", "other"];
+  static ACTIONS = ["NONE", "GET_SLOTS", "LIST_SERVICES", "COMMIT_BOOKING", "RESET"];
+  static async conductTurn(ctx) {
+    const prompt = this.buildConductorPrompt(ctx);
+    const fallback = {
+      reply: "\u0639\u064A\u0646\u064A \u0639\u0630\u0631\u0627\u064B\u060C \u0635\u0627\u0631 \u0627\u0646\u0642\u0637\u0627\u0639 \u0644\u062D\u0638\u064A \u0628\u0627\u0644\u0627\u062A\u0635\u0627\u0644. \u062A\u0641\u0636\u0644 \u0623\u0639\u064A\u062F \u0643\u0644\u0627\u0645\u0643 \u0645\u0631\u0629 \u062B\u0627\u0646\u064A\u0629 \u0648\u062A\u062F\u0644\u0644 \u{1F338}",
+      intent: "other",
+      action: "NONE",
+      proposed: {}
+    };
+    try {
+      const modelName = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: this.getSystemInstruction(ctx.tenant),
+        generationConfig: { responseMimeType: "application/json" }
+      });
+      const response = await model.generateContent(prompt);
+      const text = response.response.text()?.trim() || "";
+      const parsed = this.extractJson(text);
+      if (!parsed) return fallback;
+      const intent = this.INTENTS.includes(parsed.intent) ? parsed.intent : "other";
+      const action = this.ACTIONS.includes(parsed.action) ? parsed.action : "NONE";
+      return {
+        reply: this.cleanMarkdown(String(parsed.reply || "")) || fallback.reply,
+        intent,
+        action,
+        proposed: parsed.proposed && typeof parsed.proposed === "object" ? parsed.proposed : {}
+      };
+    } catch (err) {
+      console.error("Gemini Conductor Error:", err);
+      return fallback;
+    }
+  }
+  /** Robust JSON extraction: strips fences and grabs the outermost {...} */
+  static extractJson(text) {
+    const cleaned = text.replace(/```(?:json)?/gi, "").trim();
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start === -1 || end <= start) return null;
+    try {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * Build the conductor prompt dynamically from the CURRENT tenant data.
+   * Contains ZERO hardcoded clinic entity names — every name, price, hour
+   * comes from the live Google Sheets data at call time.
+   */
+  static buildConductorPrompt(ctx) {
+    const t = ctx.tenant;
+    const branchDepts = t.branches.map((b) => {
+      const bDocs = t.doctors.filter((d) => d.branchId === b.id || d.branchName === b.name);
+      const depts = Array.from(new Set(t.services.filter((s2) => bDocs.some((d) => d.name === s2.doctorName || !s2.doctorName)).map((s2) => s2.department).filter(Boolean)));
+      return `${b.name}${b.address ? " - " + b.address : ""} \u2014 \u0627\u0644\u0623\u0642\u0633\u0627\u0645: ${depts.length ? depts.join(" \u060C ") : "\u0639\u0627\u0645"}`;
+    }).join("\n");
+    const servicesText = t.services.map((s2) => {
+      const doc = t.doctors.find((d) => d.name === s2.doctorName);
+      return `- ${s2.name} | \u0627\u0644\u0633\u0639\u0631: ${s2.price > 0 ? s2.price + " \u062F\u064A\u0646\u0627\u0631" : "\u062D\u0633\u0628 \u0627\u0644\u0641\u062D\u0635"} | \u0627\u0644\u0645\u062F\u0629: ${s2.durationMinutes || 30} \u062F\u0642\u064A\u0642\u0629 | \u0627\u0644\u0642\u0633\u0645: ${s2.department || "\u0639\u0627\u0645"}${s2.doctorName ? " | \u0627\u0644\u0637\u0628\u064A\u0628: " + s2.doctorName + (doc ? " (" + doc.branchName + ")" : "") : ""}`;
+    }).join("\n");
+    const doctorsText = t.doctors.map((d) => {
+      const days = (d.workingHours?.days || []).map((n) => ["\u0627\u0644\u0623\u062D\u062F", "\u0627\u0644\u0625\u062B\u0646\u064A\u0646", "\u0627\u0644\u062B\u0644\u0627\u062B\u0627\u0621", "\u0627\u0644\u0623\u0631\u0628\u0639\u0627\u0621", "\u0627\u0644\u062E\u0645\u064A\u0633", "\u0627\u0644\u062C\u0645\u0639\u0629", "\u0627\u0644\u0633\u0628\u062A"][n]).join("\u060C ");
+      return `- ${d.name} | \u0627\u0644\u0641\u0631\u0639: ${d.branchName || d.branchId} | \u0627\u0644\u062A\u062E\u0635\u0635: ${d.specialty || "\u0639\u0627\u0645"} | \u0627\u0644\u062F\u0648\u0627\u0645: ${days || "\u064A\u0648\u0645\u064A\u0627\u064B"} \u0645\u0646 ${d.workingHours?.startHour ?? 9} \u0625\u0644\u0649 ${d.workingHours?.endHour ?? 17}`;
+    }).join("\n");
+    const faqsText = (t.faqs || []).slice(0, 12).map((f) => `\u0633: ${f.question} | \u062C: ${f.answer}`).join("\n");
+    const s = ctx.slots || {};
+    const filled = [];
+    if (s.branchName) filled.push(`\u0627\u0644\u0641\u0631\u0639: ${s.branchName}`);
+    if (s.department) filled.push(`\u0627\u0644\u0642\u0633\u0645: ${s.department}`);
+    if (s.serviceName) filled.push(`\u0627\u0644\u062E\u062F\u0645\u0629: ${s.serviceName}`);
+    if (s.doctorName) filled.push(`\u0627\u0644\u0637\u0628\u064A\u0628: ${s.doctorName}`);
+    if (s.date) filled.push(`\u0627\u0644\u062A\u0627\u0631\u064A\u062E: ${s.date}`);
+    if (s.startTime) filled.push(`\u0627\u0644\u0648\u0642\u062A: ${s.startTime}`);
+    const stateLine = filled.length ? filled.join(" \u060C ") : "\u0644\u0627 \u064A\u0648\u062C\u062F \u0623\u064A \u0627\u062E\u062A\u064A\u0627\u0631 \u0628\u0639\u062F";
+    let proposalLine = "";
+    if (ctx.pendingProposal && ctx.proposedSlot) {
+      proposalLine = `\u062A\u0645 \u0639\u0631\u0636 \u0627\u0642\u062A\u0631\u0627\u062D \u0645\u0648\u0639\u062F \u0639\u0644\u0649 \u0627\u0644\u0632\u0628\u0648\u0646: ${ctx.proposedSlot.date === getBaghdadTomorrow() ? "\u063A\u062F\u0627\u064B" : ctx.proposedSlot.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${ctx.proposedSlot.startTime} \u0645\u0639 ${ctx.proposedSlot.doctorName || s.doctorName || ""}`;
+    }
+    const finalLine = ctx.awaitingFinalConfirm ? '\u0627\u0644\u0632\u0628\u0648\u0646 \u0648\u0627\u0641\u0642 \u0639\u0644\u0649 \u0627\u0644\u0648\u0642\u062A \u0648\u0623\u0646\u062A \u0627\u0644\u0622\u0646 \u0641\u064A \u0645\u0631\u062D\u0644\u0629 \u0627\u0644\u0645\u0644\u062E\u0635 \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u2014 \u0627\u0646\u062A\u0638\u0631 \u062A\u0623\u0643\u064A\u062F\u0647 \u0627\u0644\u0623\u062E\u064A\u0631 ("\u062A\u0645\u0627\u0645/\u0623\u0643\u064A\u062F/\u062B\u0628\u062A") \u0642\u0628\u0644 \u0637\u0644\u0628 \u0627\u0644\u062A\u062B\u0628\u064A\u062A.' : "";
+    const recentTurns = (ctx.recentMessages || []).slice(-6).map((turn) => `${turn.role === "user" ? "\u0627\u0644\u0632\u0628\u0648\u0646" : "\u0633\u0627\u0631\u0629"}: ${turn.text}`).join("\n");
+    const toolNote = ctx.toolResult ? `
+\u0646\u062A\u064A\u062C\u0629 \u0639\u0645\u0644\u064A\u0629 \u0642\u0627\u0645 \u0628\u0647\u0627 \u0627\u0644\u0646\u0638\u0627\u0645 \u0644\u0644\u062A\u0648 (\u0627\u0633\u062A\u062E\u062F\u0645\u064A\u0647\u0627 \u062D\u0631\u0641\u064A\u0627\u064B \u0648\u0644\u0627 \u062A\u0628\u062F\u0644\u064A\u0647\u0627):
+${ctx.toolResult}` : "";
+    const recNote = ctx.recommendedService ? `\u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0645\u0642\u062A\u0631\u062D\u0629 \u0643\u062E\u064A\u0627\u0631 \u0633\u0631\u064A\u0639: ${ctx.recommendedService}` : "";
+    const optionsNote = ctx.optionsOffered && ctx.optionsOffered.length ? `\u0622\u062E\u0631 \u0642\u0627\u0626\u0645\u0629 \u0639\u0631\u0636\u062A\u0647\u0627 \u0639\u0644\u0649 \u0627\u0644\u0632\u0628\u0648\u0646 (\u0628\u0623\u0631\u0642\u0627\u0645): ${ctx.optionsOffered.map((o, i) => `${i + 1}. ${o}`).join(" | ")} \u2014 \u0625\u0630\u0627 \u0631\u062F \u0627\u0644\u0632\u0628\u0648\u0646 \u0628\u0631\u0642\u0645 \u0641\u0642\u0637\u060C \u0642\u0627\u0628\u0644\u064A\u0647 \u0628\u0647\u0630\u0647 \u0627\u0644\u0642\u0627\u0626\u0645\u0629.` : "";
+    const committedNote = ctx.bookingCommitted ? "\u0644\u0642\u062F \u062A\u0645 \u062A\u062B\u0628\u064A\u062A \u0627\u0644\u062D\u062C\u0632 \u0631\u0633\u0645\u064A\u0627\u064B \u0641\u064A \u0627\u0644\u0646\u0638\u0627\u0645 \u0642\u0628\u0644 \u0647\u0630\u0627 \u0627\u0644\u0631\u062F \u2014 \u0627\u0643\u062A\u0628\u064A \u0627\u0644\u0622\u0646 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0646\u0647\u0627\u0626\u064A\u0629 \u0627\u0644\u062F\u0627\u0641\u0626\u0629 (\u0627\u0644\u0648\u0635\u0644) \u0628\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u062D\u0631\u0641\u064A\u0627\u064B." : "";
+    return `
+\u0623\u0646\u062A\u0650 "\u0633\u0627\u0631\u0629 \u0627\u0644\u0631\u0642\u0645\u064A\u0629"\u060C \u0645\u0648\u0638\u0641\u0629 \u0627\u0633\u062A\u0642\u0628\u0627\u0644 \u062D\u0642\u064A\u0642\u064A\u0629 \u0641\u064A "${t.clinicName}".
+\u0627\u0644\u0622\u0646: ${this.getBaghdadDateString()} (\u0628\u062A\u0648\u0642\u064A\u062A \u0628\u063A\u062F\u0627\u062F).
+
+=== \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 (\u0627\u0644\u0645\u0635\u062F\u0631 \u0627\u0644\u0648\u062D\u064A\u062F \u2014 \u0644\u0627 \u062A\u062E\u062A\u0644\u0642\u064A \u0623\u064A \u0645\u0639\u0644\u0648\u0645\u0629 \u062E\u0627\u0631\u062C\u0647\u0627) ===
+\u0647\u0627\u062A\u0641 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631: ${t.secretaryPhone || "\u063A\u064A\u0631 \u0645\u062A\u0648\u0641\u0631"}
+\u0627\u0644\u0641\u0631\u0648\u0639:
+${branchDepts}
+\u0627\u0644\u062E\u062F\u0645\u0627\u062A:
+${servicesText}
+\u0627\u0644\u0623\u0637\u0628\u0627\u0621:
+${doctorsText}
+\u0627\u0644\u0623\u0633\u0626\u0644\u0629 \u0627\u0644\u0634\u0627\u0626\u0639\u0629:
+${faqsText || "\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u0633\u0626\u0644\u0629 \u0645\u0633\u062C\u0644\u0629"}
+${recNote}
+
+=== \u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u062C\u0632 \u0627\u0644\u062D\u0627\u0644\u064A\u0629 ===
+${stateLine}
+${proposalLine}
+${finalLine}
+\u0627\u0644\u0627\u0633\u0645 \u0627\u0644\u0645\u0633\u062C\u0644: ${ctx.patientName || "\u0644\u0645 \u064A\u064F\u0639\u0637\u064E \u0628\u0639\u062F"}${ctx.isReturning ? " (\u0632\u0628\u0648\u0646 \u0639\u0627\u0626\u062F)" : ""}
+${optionsNote}
+${toolNote}
+${committedNote}
+
+=== \u0622\u062E\u0631 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 ===
+${recentTurns || "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629"}
+
+\u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0632\u0628\u0648\u0646 \u0627\u0644\u0623\u062E\u064A\u0631\u0629: "${ctx.userMessage}"
+
+=== \u0634\u062E\u0635\u064A\u062A\u0643 \u0648\u0642\u0648\u0627\u0639\u062F \u0627\u0644\u0631\u062F ===
+1. \u0644\u0647\u062C\u0629 \u0639\u0631\u0627\u0642\u064A\u0629 \u0639\u0641\u0648\u064A\u0629 \u0645\u0647\u0630\u0628\u0629\u060C \u0643\u0644\u0645\u0627\u062A \u0642\u0635\u064A\u0631\u0629 \u0648\u0637\u0628\u064A\u0639\u064A\u0629\u060C \u0628\u062F\u0648\u0646 Markdown \u0648\u0628\u062F\u0648\u0646 \u062A\u0643\u0631\u0627\u0631 \u062C\u0645\u0644\u0629 \u062E\u062A\u0627\u0645\u064A\u0629 \u0623\u0648 \u0627\u0641\u062A\u062A\u0627\u062D\u064A\u0629 \u2014 \u0643\u0644 \u0631\u062F \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u062E\u062A\u0644\u0641 \u0639\u0646 \u0633\u0627\u0628\u0642\u0647 \u0648\u0644\u0627 \u062A\u0643\u0631\u0631\u064A \u0646\u0641\u0633 \u0627\u0644\u0635\u064A\u063A\u0629.
+2. \u0644\u0627 \u062A\u062E\u062A\u0644\u0642\u064A \u0623\u0628\u062F\u0627\u064B \u0641\u0631\u0639\u0627\u064B \u0623\u0648 \u062E\u062F\u0645\u0629 \u0623\u0648 \u0637\u0628\u064A\u0628\u0627\u064B \u0623\u0648 \u0633\u0639\u0631\u0627\u064B \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F \u0641\u064A "\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u0631\u0633\u0645\u064A\u0629" \u0623\u0639\u0644\u0627\u0647 \u2014 \u0627\u0639\u062A\u0645\u062F\u064A\u0647\u0627 \u062D\u0635\u0631\u0627\u064B.
+3. \u0644\u0627 \u0632\u064A\u0627\u0631\u0627\u062A \u0645\u0646\u0632\u0644\u064A\u0629\u060C \u0644\u0627 \u062A\u0643\u0633\u064A/\u062A\u0648\u0635\u064A\u0644\u060C \u0644\u0627 \u0642\u0628\u0648\u0644 \u0647\u062F\u0627\u064A\u0627 \u0623\u0648 \u0628\u0642\u0634\u064A\u0634 \u2014 \u0627\u0639\u062A\u0630\u0631\u064A \u0628\u0644\u0637\u0641 \u0648\u0627\u0631\u062C\u0639\u064A \u0627\u0644\u0645\u0648\u0636\u0648\u0639 \u0644\u0644\u062D\u062C\u0632.
+4. \u0639\u0646\u062F \u0627\u0644\u063A\u0636\u0628 \u0623\u0648 \u0627\u0644\u0634\u062A\u0627\u0626\u0645 \u0623\u0648 \u0627\u0644\u0627\u0639\u062A\u0631\u0627\u0636: \u0627\u0639\u062A\u0630\u0627\u0631 \u0642\u0635\u064A\u0631 \u0635\u0627\u062F\u0642 \u0628\u062F\u0648\u0646 \u062C\u062F\u0627\u0644\u060C \u062B\u0645 \u0623\u0639\u064A\u062F\u064A \u0627\u0644\u0633\u0624\u0627\u0644 \u0627\u0644\u062D\u0627\u0644\u064A \u0628\u0647\u062F\u0648\u0621.
+5. \u0623\u064A \u0633\u0624\u0627\u0644 \u062C\u0627\u0646\u0628\u064A (\u0633\u0639\u0631\u060C \u0645\u0648\u0642\u0639\u060C \u062F\u0648\u0627\u0645\u060C \u062F\u0643\u062A\u0648\u0631\u060C \u062E\u062F\u0645\u0629\u060C \u0623\u064A \u0627\u0633\u062A\u0641\u0633\u0627\u0631 \u0639\u0646 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0648\u0627\u0644\u062D\u062C\u0632): \u0623\u062C\u064A\u0628\u064A \u0628\u0627\u062E\u062A\u0635\u0627\u0631 \u062B\u0645 \u0627\u0631\u062C\u0639\u064A \u0644\u0645\u0648\u0636\u0648\u0639 \u0627\u0644\u062D\u062C\u0632 \u0628\u0637\u0631\u064A\u0642\u0629 \u0645\u062E\u062A\u0644\u0641\u0629 \u0643\u0644 \u0645\u0631\u0629 (\u0644\u0627 \u062A\u0643\u0631\u0631\u064A \u0646\u0641\u0633 \u0627\u0644\u062C\u0645\u0644\u0629).
+6. \u0625\u0630\u0627 \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u063A\u0627\u0645\u0636\u0629 ("\u061F" \u0623\u0648 \u0625\u064A\u0645\u0648\u062C\u064A \u0641\u0642\u0637 \u0623\u0648 \u0643\u0644\u0645\u0629 \u0648\u062D\u064A\u062F\u0629): \u0627\u0639\u062A\u0630\u0631\u064A \u0628\u0644\u0637\u0641 \u0648\u0627\u0637\u0644\u0628\u064A \u062A\u0648\u0636\u064A\u062D \u0627\u0644\u0633\u0624\u0627\u0644 \u0627\u0644\u062D\u0627\u0644\u064A \u0628\u0644\u0627 \u0627\u0646\u0632\u0639\u0627\u062C.
+7. \u0644\u0627 \u062A\u0633\u062A\u062E\u062F\u0645\u064A "\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A" \u0623\u0648 "\u0643\u0644\u064A\u0644\u064A \u0634\u0646\u0648" \u0623\u0648 "\u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0644\u064A \u062A\u062D\u0628 \u0646\u0648\u0636\u062D\u0647\u0627" \u0643\u062C\u0645\u0644 \u0627\u0641\u062A\u062A\u0627\u062D\u064A\u0629 \u0623\u0648 \u062E\u062A\u0627\u0645\u064A\u0629 \u2014 \u0627\u062E\u062A\u0627\u0631\u064A \u0635\u064A\u063A\u0629 \u0645\u062E\u062A\u0644\u0641\u0629 \u0643\u0644 \u0645\u0631\u0629.
+
+=== \u0631\u0648\u062A\u064A\u0646 \u0627\u0644\u062D\u062C\u0632 (\u0646\u0641\u0630\u064A\u0647 \u0628\u0646\u0641\u0633\u0643 \u0628\u0645\u0631\u0648\u0646\u0629) ===
+1. \u0625\u0630\u0627 \u0644\u0645 \u064A\u064F\u062D\u062F\u062F \u0627\u0644\u0641\u0631\u0639 \u0628\u0639\u062F: \u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0632\u0628\u0648\u0646 \u0623\u064A \u0641\u0631\u0639 \u064A\u0641\u0636\u0644 (\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0623\u0639\u0644\u0627\u0647 \u0628\u0623\u0642\u0633\u0627\u0645\u0647\u0627).
+2. \u0628\u0639\u062F \u0627\u0644\u0641\u0631\u0639: \u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0642\u0633\u0645 \u0625\u0630\u0627 \u0643\u0627\u0646 \u0645\u0637\u0644\u0648\u0628\u0627\u064B.
+3. \u0628\u0639\u062F \u0627\u0644\u0641\u0631\u0639 \u0648\u0627\u0644\u0642\u0633\u0645: \u0627\u0642\u062A\u0631\u062D\u064A \u062D\u062C\u0632 \u0627\u0644\u0643\u0634\u0641\u064A\u0629/\u0627\u0644\u0641\u062D\u0635 \u0627\u0644\u0639\u0627\u0645 (\u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0645\u0642\u062A\u0631\u062D\u0629 \u0623\u0639\u0644\u0627\u0647 \u0625\u0646 \u0648\u062C\u062F\u062A) \u0639\u0634\u0627\u0646 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u064A\u062D\u062F\u062F \u0627\u062D\u062A\u064A\u0627\u062C\u0647 \u0628\u0627\u0644\u0636\u0628\u0637\u060C \u0623\u0648 \u0627\u0639\u0631\u0636\u064A \u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062E\u062F\u0645\u0627\u062A.
+4. \u0628\u0639\u062F \u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u062E\u062F\u0645\u0629: \u0627\u0637\u0644\u0628\u064A action "GET_SLOTS" \u0644\u064A\u062C\u0644\u0628 \u0644\u0643 \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u062D\u0642\u064A\u0642\u064A\u0629\u060C \u062B\u0645 \u0627\u0639\u0631\u0636\u064A \u0623\u0642\u0631\u0628 \u0645\u0648\u0639\u062F (\u0627\u0644\u064A\u0648\u0645 \u0648\u0627\u0644\u0633\u0627\u0639\u0629 \u0648\u0627\u0644\u0637\u0628\u064A\u0628) \u0648\u0627\u0633\u0623\u0644\u064A "\u064A\u0646\u0627\u0633\u0628\u0643\u061F".
+5. \u0628\u0639\u062F \u0645\u0648\u0627\u0641\u0642\u0629 \u0627\u0644\u0632\u0628\u0648\u0646 \u0639\u0644\u0649 \u0627\u0644\u0648\u0642\u062A: \u0625\u0630\u0627 \u0645\u0627 \u0646\u0639\u0631\u0641 \u0627\u0633\u0645\u0647 \u0627\u0633\u0623\u0644\u064A\u0647 \u0627\u0644\u0627\u0633\u0645 \u0627\u0644\u062B\u0646\u0627\u0626\u064A\u061B \u0628\u0639\u062F\u0647\u0627 \u0627\u0639\u0631\u0636\u064A \u0645\u0644\u062E\u0635 \u0627\u0644\u062D\u062C\u0632 \u0627\u0644\u0643\u0627\u0645\u0644 \u0648\u0627\u0633\u0623\u0644\u064A "\u0646\u062B\u0628\u062A \u0643\u0644\u0634\u064A \u062A\u0645\u0627\u0645\u061F".
+6. \u0639\u0646\u062F \u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0632\u0628\u0648\u0646 \u0627\u0644\u0646\u0647\u0627\u0626\u064A (\u062A\u0645\u0627\u0645/\u0623\u0643\u064A\u062F/\u062B\u0628\u062A/\u0646\u0639\u0645): \u0627\u0637\u0644\u0628\u064A action "COMMIT_BOOKING".
+7. \u0639\u0646\u062F\u0645\u0627 \u064A\u0628\u0644\u063A\u0643 \u0627\u0644\u0646\u0638\u0627\u0645 \u0628\u0627\u0644\u062A\u062B\u0628\u064A\u062A (bookingCommitted): \u0627\u0643\u062A\u0628\u064A \u0648\u0635\u0644 \u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0627\u0644\u062F\u0627\u0641\u0626 \u0628\u0643\u0644 \u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 + \u062A\u0639\u0644\u064A\u0645\u0627\u062A \u0645\u0627 \u0642\u0628\u0644 \u0627\u0644\u062D\u0636\u0648\u0631.
+
+=== \u0642\u0631\u0627\u0631\u0643 \u0644\u0647\u0630\u0647 \u0627\u0644\u0631\u0633\u0627\u0644\u0629: \u0623\u0631\u062C\u0639\u064A JSON \u0641\u0642\u0637 ===
+{
+  "reply": "\u0631\u062F\u0643 \u0627\u0644\u0643\u0627\u0645\u0644 \u0644\u0647\u0630\u0647 \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u0628\u0627\u0644\u0639\u0631\u0627\u0642\u064A (\u0625\u0630\u0627 action \u063A\u064A\u0631 NONE \u064A\u0645\u0643\u0646 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0631\u062F\u0627\u064B \u0627\u0646\u062A\u0642\u0627\u0644\u064A\u0627\u064B \u0642\u0635\u064A\u0631\u0627\u064B)",
+  "intent": "answer | side_question | confirm_slot | decline_slot | confirm_booking | decline_booking | cancel | modify | human | greeting | other",
+  "action": "NONE | GET_SLOTS | LIST_SERVICES | COMMIT_BOOKING | RESET",
+  "proposed": {
+    "branchName": "\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0630\u064A \u0627\u062E\u062A\u0627\u0631\u0647 \u0627\u0644\u0632\u0628\u0648\u0646 \u0628\u0646\u0635\u0647 \u0623\u0648 null",
+    "department": "\u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0630\u064A \u0627\u062E\u062A\u0627\u0631\u0647 \u0623\u0648 null",
+    "serviceName": "\u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u062A\u064A \u0627\u062E\u062A\u0627\u0631\u0647\u0627 \u0623\u0648 null",
+    "doctorName": "\u0627\u0644\u0637\u0628\u064A\u0628 \u0627\u0644\u0630\u064A \u0627\u062E\u062A\u0627\u0631\u0647 \u0623\u0648 null",
+    "date": "\u0627\u0644\u064A\u0648\u0645 \u0623\u0648 \u0627\u0644\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0630\u064A \u0630\u0643\u0631\u0647 (\u0628\u0627\u062C\u0631\u060C \u0639\u0642\u0628 \u0628\u0627\u062C\u0631\u060C YYYY-MM-DD) \u0623\u0648 null",
+    "time": "\u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0630\u064A \u0630\u0643\u0631\u0647 (HH:mm \u0623\u0648 \u0627\u0644\u0639\u0635\u0631/\u0627\u0644\u0638\u0647\u0631...) \u0623\u0648 null",
+    "patientName": "\u0627\u0633\u0645 \u0627\u0644\u0632\u0628\u0648\u0646 \u0625\u0630\u0627 \u0623\u0639\u0637\u0627\u0647 \u0623\u0648 null"
+  }
+}
+
+\u0642\u0648\u0627\u0639\u062F \u0627\u0644\u0642\u0631\u0627\u0631:
+- \u0623\u064A \u0643\u064A\u0627\u0646 \u0641\u064A proposed \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u0637\u0627\u0628\u0642\u0627\u064B \u0641\u0639\u0644\u064A\u0627\u064B \u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 \u0623\u0639\u0644\u0627\u0647 (\u0628\u0627\u0644\u062A\u0633\u0627\u0645\u062D \u0627\u0644\u0625\u0645\u0644\u0627\u0626\u064A).
+- side_question: \u0627\u0644\u0633\u0624\u0627\u0644 \u0644\u0627 \u064A\u062E\u0635 \u0627\u062E\u062A\u064A\u0627\u0631\u0627\u064B \u0645\u0646 \u0631\u0648\u062A\u064A\u0646 \u0627\u0644\u062D\u062C\u0632 \u2192 \u0627\u0644\u0631\u062F \u0641\u064A\u0647 \u0627\u0644\u062C\u0648\u0627\u0628 + \u0627\u0644\u0639\u0648\u062F\u0629 \u0644\u0646\u0641\u0633 \u0627\u0644\u0633\u0624\u0627\u0644\u060C action: NONE.
+- confirm_slot: \u0648\u0627\u0641\u0642 \u0639\u0644\u0649 \u0627\u0644\u0648\u0642\u062A (\u0645\u0648\u0627\u0641\u0642/\u064A\u0646\u0627\u0633\u0628\u0646\u064A/\u062B\u0628\u062A \u0627\u0644\u0648\u0642\u062A/\u0646\u0639\u0645). confirm_booking: \u062A\u0623\u0643\u064A\u062F \u0646\u0647\u0627\u0626\u064A \u0628\u0639\u062F \u0639\u0631\u0636 \u0627\u0644\u0645\u0644\u062E\u0635 (\u062A\u0645\u0627\u0645/\u0623\u0643\u064A\u062F/\u062B\u0628\u062A). decline_slot/decline_booking: \u0631\u0641\u0636.
+- GET_SLOTS: \u0641\u0642\u0637 \u0639\u0646\u062F\u0645\u0627 \u062A\u0643\u0648\u0646 \u0627\u0644\u062E\u062F\u0645\u0629 \u0645\u062D\u062F\u062F\u0629 \u0648\u0646\u062D\u062A\u0627\u062C \u0645\u0648\u0627\u0639\u064A\u062F \u062D\u0642\u064A\u0642\u064A\u0629. LIST_SERVICES: \u0639\u0646\u062F\u0645\u0627 \u064A\u0637\u0644\u0628 \u0627\u0644\u0642\u0627\u0626\u0645\u0629. COMMIT_BOOKING: \u0641\u0642\u0637 \u0639\u0646\u062F \u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0627\u0644\u0643\u0627\u0645\u0644. RESET: \u0639\u0646\u062F\u0645\u0627 \u064A\u0631\u064A\u062F \u062A\u0635\u0641\u064A\u0631 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0623\u0648 \u062D\u062C\u0632 \u062C\u062F\u064A\u062F \u0643\u0627\u0645\u0644.
+- \u0644\u0627 \u062A\u0631\u062C\u0639 "undefined" \u0623\u0648 \u0643\u0644\u0645\u0627\u062A \u0648\u0647\u0645\u064A\u0629 \u0641\u064A proposed \u2014 \u0641\u0642\u0637 null \u0623\u0648 \u0642\u064A\u0645 \u062D\u0642\u064A\u0642\u064A\u0629.
+`;
   }
 };
 
@@ -289,14 +449,19 @@ var AtomicLockManager = class {
    * Attempt to acquire an atomic lock for a resource (e.g., doctorId + slotDate + slotTime)
    * @param resourceKey Unique string representing the slot
    * @param ttlMs Time-to-live for the lock in milliseconds (default 10 minutes)
+   * @param owner Session/patient identifier that requested the lock
    */
-  static acquireLock(resourceKey, ttlMs = 6e5) {
+  static acquireLock(resourceKey, ttlMs = 6e5, owner) {
     const now = Date.now();
     const existingLock = this.locks.get(resourceKey);
-    if (existingLock && existingLock > now) {
+    if (existingLock && existingLock.expiresAt > now) {
+      if (owner && existingLock.owner === owner) {
+        existingLock.expiresAt = now + ttlMs;
+        return true;
+      }
       return false;
     }
-    this.locks.set(resourceKey, now + ttlMs);
+    this.locks.set(resourceKey, { expiresAt: now + ttlMs, owner });
     return true;
   }
   /**
@@ -306,12 +471,26 @@ var AtomicLockManager = class {
     this.locks.delete(resourceKey);
   }
   /**
+   * Renew/extend the TTL of an existing lock (used by the session that originally proposed the slot
+   * right before the final booking write to keep the reservation fresh).
+   * Never steals a lock held by a different owner.
+   */
+  static renewLock(resourceKey, ttlMs = 6e5, owner) {
+    const now = Date.now();
+    const existingLock = this.locks.get(resourceKey);
+    if (existingLock && existingLock.expiresAt > now && owner && existingLock.owner && existingLock.owner !== owner) {
+      return false;
+    }
+    this.locks.set(resourceKey, { expiresAt: now + ttlMs, owner: owner || existingLock?.owner });
+    return true;
+  }
+  /**
    * Check if resource is currently locked
    */
   static isLocked(resourceKey) {
-    const lockTime = this.locks.get(resourceKey);
-    if (!lockTime) return false;
-    if (lockTime <= Date.now()) {
+    const lock = this.locks.get(resourceKey);
+    if (!lock) return false;
+    if (lock.expiresAt <= Date.now()) {
       this.locks.delete(resourceKey);
       return false;
     }
@@ -322,8 +501,8 @@ var AtomicLockManager = class {
    */
   static cleanExpiredLocks() {
     const now = Date.now();
-    for (const [key, expiresAt] of this.locks.entries()) {
-      if (expiresAt <= now) {
+    for (const [key, lock] of this.locks.entries()) {
+      if (lock.expiresAt <= now) {
         this.locks.delete(key);
       }
     }
@@ -336,26 +515,115 @@ var SlotGenerator = class {
    * Helper to get Tomorrow's Date (YYYY-MM-DD) for Tomorrow-First slot generation
    */
   static getTomorrowDate() {
-    const tomorrow = /* @__PURE__ */ new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toISOString().split("T")[0];
+    return formatDate(addDays(getBaghdadNow(), 1));
+  }
+  /**
+   * Parse break times text (e.g. "13:00-14:00" or "13:00 - 14:00, 17:00 - 18:00")
+   */
+  static parseBreakTimes(breakTimesStr) {
+    if (!breakTimesStr || !breakTimesStr.trim()) return [];
+    const intervals = [];
+    const parts = breakTimesStr.split(/[,،;]/);
+    for (const part of parts) {
+      const m = part.match(/(\d{1,2}):?(\d{2})?\s*[-–—]\s*(\d{1,2}):?(\d{2})?/);
+      if (m) {
+        const startMinute = parseInt(m[1]) * 60 + (m[2] ? parseInt(m[2]) : 0);
+        const endMinute = parseInt(m[3]) * 60 + (m[4] ? parseInt(m[4]) : 0);
+        if (endMinute > startMinute) intervals.push({ startMinute, endMinute });
+      }
+    }
+    return intervals;
+  }
+  /**
+   * OffDays entries may be specific dates ("2026-08-15") or Arabic weekday names ("الجمعة").
+   * Returns true if the given date/weekday is off.
+   */
+  static isOffDay(doctor, date, dayOfWeek) {
+    if (!doctor.offDays || doctor.offDays.length === 0) return false;
+    const dayMap = {
+      "\u0623\u062D\u062F": 0,
+      "\u0627\u0644\u0627\u062D\u062F": 0,
+      "\u0627\u0644\u0623\u062D\u062F": 0,
+      "sun": 0,
+      "\u0625\u062B\u0646\u064A\u0646": 1,
+      "\u0627\u062B\u0646\u064A\u0646": 1,
+      "\u0627\u0644\u0625\u062B\u0646\u064A\u0646": 1,
+      "mon": 1,
+      "\u062B\u0644\u0627\u062B\u0627\u0621": 2,
+      "\u0627\u0644\u062B\u0644\u0627\u062B\u0627\u0621": 2,
+      "tue": 2,
+      "\u0623\u0631\u0628\u0639\u0627\u0621": 3,
+      "\u0627\u0631\u0628\u0639\u0627\u0621": 3,
+      "\u0627\u0644\u0623\u0631\u0628\u0639\u0627\u0621": 3,
+      "wed": 3,
+      "\u062E\u0645\u064A\u0633": 4,
+      "\u0627\u0644\u062E\u0645\u064A\u0633": 4,
+      "thu": 4,
+      "\u062C\u0645\u0639\u0629": 5,
+      "\u0627\u0644\u062C\u0645\u0639\u0629": 5,
+      "fri": 5,
+      "\u0633\u0628\u062A": 6,
+      "\u0627\u0644\u0633\u0628\u062A": 6,
+      "sat": 6
+    };
+    return doctor.offDays.some((entry) => {
+      const e = entry.trim().toLowerCase();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(e)) return e === date;
+      for (const [key, num] of Object.entries(dayMap)) {
+        if (e === key.toLowerCase() && num === dayOfWeek) return true;
+      }
+      return false;
+    });
+  }
+  /**
+   * Check if an interval [slotStart, slotEnd) intersects a break interval
+   */
+  static intersectsBreak(slotStart, slotEnd, breaks) {
+    return breaks.some((b) => slotStart < b.endMinute && slotEnd > b.startMinute);
+  }
+  /**
+   * Check if an interval [slotStart, slotEnd) overlaps any existing booking interval
+   */
+  static overlapsBooking(slotStart, slotEnd, doctor, date, bookings) {
+    const toMin = (t) => {
+      const [h, m] = t.split(":").map(Number);
+      return (h || 0) * 60 + (m || 0);
+    };
+    return bookings.some((b) => {
+      if (b.date !== date) return false;
+      const sameDoctor = b.doctorId && b.doctorId === doctor.id || b.doctorName && (b.doctorName === doctor.name || doctor.name.includes(b.doctorName) || b.doctorName.includes(doctor.name));
+      if (!sameDoctor) return false;
+      const bStart = toMin(b.startTime);
+      const bEnd = b.endTime ? toMin(b.endTime) : bStart + 30;
+      return slotStart < bEnd && slotEnd > bStart;
+    });
   }
   /**
    * Generate available time slots for a doctor starting from tomorrow or specific date (YYYY-MM-DD).
-   * Applies 1.2x Human Buffer Multiplier for realistic operational margin.
+   * Applies 1.2x Human Buffer Multiplier, excludes BreakTimes / OffDays / existing bookings / locked slots,
+   * and enforces DailyPatientCapacity.
    */
-  static generateAvailableSlots(doctor, date, existingBookings, serviceDurationMinutes = 30) {
+  static generateAvailableSlots(doctor, date, existingBookings = [], serviceDurationMinutes = 30, ignoreLockedSlotId) {
     const slots = [];
     const dateObj = new Date(date);
     const dayOfWeek = dateObj.getDay();
     if (!doctor.workingHours.days.includes(dayOfWeek)) {
       return slots;
     }
+    if (this.isOffDay(doctor, date, dayOfWeek)) {
+      return slots;
+    }
     const { startHour, endHour, slotDurationMinutes } = doctor.workingHours;
     const effectiveDuration = Math.ceil((serviceDurationMinutes || slotDurationMinutes) * 1.2);
+    const breaks = this.parseBreakTimes(doctor.breakTimes);
+    const capacity = doctor.dailyPatientCapacity || 20;
+    const bookedCount = existingBookings.filter(
+      (b) => b.date === date && (b.doctorId && b.doctorId === doctor.id || b.doctorName && (b.doctorName === doctor.name || doctor.name.includes(b.doctorName) || b.doctorName.includes(doctor.name)))
+    ).length;
+    const remainingCapacity = Math.max(0, capacity - bookedCount);
     let currentMinute = startHour * 60;
     const endMinute = endHour * 60;
-    while (currentMinute + effectiveDuration <= endMinute) {
+    while (currentMinute + effectiveDuration <= endMinute && slots.length < remainingCapacity) {
       const startH = Math.floor(currentMinute / 60).toString().padStart(2, "0");
       const startM = (currentMinute % 60).toString().padStart(2, "0");
       const endSlotMinute = currentMinute + effectiveDuration;
@@ -364,14 +632,14 @@ var SlotGenerator = class {
       const startTime = `${startH}:${startM}`;
       const endTime = `${endH}:${endM}`;
       const slotKey = `${doctor.id}_${date}_${startTime}`;
-      const isAlreadyBooked = existingBookings.some(
-        (b) => b.doctorId === doctor.id && b.date === date && b.startTime === startTime
-      );
-      const isLocked = AtomicLockManager.isLocked(slotKey);
-      if (!isAlreadyBooked && !isLocked) {
+      const inBreak = this.intersectsBreak(currentMinute, endSlotMinute, breaks);
+      const isAlreadyBooked = this.overlapsBooking(currentMinute, endSlotMinute, doctor, date, existingBookings);
+      const isLocked = ignoreLockedSlotId === slotKey ? false : AtomicLockManager.isLocked(slotKey);
+      if (!inBreak && !isAlreadyBooked && !isLocked) {
         slots.push({
           slotId: slotKey,
           doctorId: doctor.id,
+          doctorName: doctor.name,
           date,
           startTime,
           endTime,
@@ -383,10 +651,22 @@ var SlotGenerator = class {
     return slots;
   }
   /**
+   * Check if a [startMinute, endMinute) interval falls inside the doctor's break times
+   */
+  static isTimeInBreak(doctor, startMinute, endMinute) {
+    return this.intersectsBreak(startMinute, endMinute, this.parseBreakTimes(doctor.breakTimes));
+  }
+  /**
    * Lock a temporary slot for 10 minutes during patient confirmation
    */
-  static lockSlotTemporarily(slot, ttlMs = 6e5) {
-    return AtomicLockManager.acquireLock(slot.slotId, ttlMs);
+  static lockSlotTemporarily(slot, ttlMs = 6e5, owner) {
+    return AtomicLockManager.acquireLock(slot.slotId, ttlMs, owner);
+  }
+  /**
+   * Renew the lock for a slot already held by the same session (used right before final booking write)
+   */
+  static renewSlotLock(slot, ttlMs = 6e5, owner) {
+    return AtomicLockManager.renewLock(slot.slotId, ttlMs, owner);
   }
   /**
    * Release temporary slot lock if patient cancels or changes mind
@@ -494,30 +774,11 @@ var GoogleSheetsService = class {
     } catch (saErr) {
       console.warn("[File Service Account Auth Warning]:", saErr);
     }
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-    if (!clientId || !clientSecret || !refreshToken) return null;
-    try {
-      const res = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: refreshToken,
-          grant_type: "refresh_token"
-        })
-      });
-      const data = await res.json();
-      return data.access_token || null;
-    } catch {
-      return null;
-    }
+    return null;
   }
   /**
    * Helper to fetch values from Google Sheets.
-   * Strategy 1: Google Sheets API v4 with OAuth2 Access Token.
+   * Strategy 1: Google Sheets API v4 with Service Account Access Token.
    * Strategy 2 (Bulletproof Fallback): GViz CSV Export endpoint (Zero Token Expiration!).
    */
   static async fetchSheetValues(rangeOrSheetName) {
@@ -586,7 +847,7 @@ var GoogleSheetsService = class {
       throw new Error(`[Google Sheets Error] Column 'ClinicName' is missing or empty in 'Clinic_Metadata'.`);
     }
     const clinicName = dataRows[0][clinicNameIdx].trim();
-    const normalizeArabicText = (text) => {
+    const normalizeArabicText2 = (text) => {
       if (!text) return "";
       return text.replace(/[\u064B-\u0652]/g, "").replace(/[أإآ]/g, "\u0627").replace(/ة/g, "\u0647").replace(/ى/g, "\u064A").replace(/\s+/g, " ").trim();
     };
@@ -598,8 +859,8 @@ var GoogleSheetsService = class {
           val.split(/[,،]/).forEach((d) => {
             const trimmed = d.trim();
             if (trimmed) {
-              const norm = normalizeArabicText(trimmed);
-              if (!metaDepartments.some((existing) => normalizeArabicText(existing) === norm)) {
+              const norm = normalizeArabicText2(trimmed);
+              if (!metaDepartments.some((existing) => normalizeArabicText2(existing) === norm)) {
                 metaDepartments.push(trimmed);
               }
             }
@@ -635,6 +896,63 @@ var GoogleSheetsService = class {
         locationLink: locationLinkIdx !== -1 && r[locationLinkIdx] ? r[locationLinkIdx].trim() : ""
       };
     });
+    const parseWorkingDays = (daysStr) => {
+      if (!daysStr) return [0, 1, 2, 3, 4, 6];
+      const text = daysStr.trim().toLowerCase();
+      if (text.includes("\u0643\u0644 \u0627\u0644\u0623\u064A\u0627\u0645") || text.includes("\u064A\u0648\u0645\u064A\u0627")) return [0, 1, 2, 3, 4, 5, 6];
+      const dayMap = {
+        "\u0623\u062D\u062F": 0,
+        "\u0627\u0644\u0627\u062D\u062F": 0,
+        "\u0627\u0644\u0623\u062D\u062F": 0,
+        "sun": 0,
+        "\u0625\u062B\u0646\u064A\u0646": 1,
+        "\u0627\u062B\u0646\u064A\u0646": 1,
+        "\u0627\u0644\u0625\u062B\u0646\u064A\u0646": 1,
+        "mon": 1,
+        "\u062B\u0644\u0627\u062B\u0627\u0621": 2,
+        "\u0627\u0644\u062B\u0644\u0627\u062B\u0627\u0621": 2,
+        "tue": 2,
+        "\u0623\u0631\u0628\u0639\u0627\u0621": 3,
+        "\u0627\u0631\u0628\u0639\u0627\u0621": 3,
+        "\u0627\u0644\u0623\u0631\u0628\u0639\u0627\u0621": 3,
+        "wed": 3,
+        "\u062E\u0645\u064A\u0633": 4,
+        "\u0627\u0644\u062E\u0645\u064A\u0633": 4,
+        "thu": 4,
+        "\u062C\u0645\u0639\u0629": 5,
+        "\u0627\u0644\u062C\u0645\u0639\u0629": 5,
+        "fri": 5,
+        "\u0633\u0628\u062A": 6,
+        "\u0627\u0644\u0633\u0628\u062A": 6,
+        "sat": 6
+      };
+      if (text.includes("-") || text.includes("\u0625\u0644\u0649") || text.includes("\u0644\u0640")) {
+        const parts = text.split(/\s*(?:-|–|—|إلى|لـ)\s*/).map((p) => p.trim());
+        let startDay = -1;
+        let endDay = -1;
+        for (const [key, num] of Object.entries(dayMap)) {
+          if (parts[0]?.includes(key)) startDay = num;
+          if (parts[1]?.includes(key)) endDay = num;
+        }
+        if (startDay !== -1 && endDay !== -1) {
+          const days2 = [];
+          let curr = startDay;
+          while (true) {
+            days2.push(curr);
+            if (curr === endDay) break;
+            curr = (curr + 1) % 7;
+          }
+          return days2;
+        }
+      }
+      const days = [];
+      for (const [key, num] of Object.entries(dayMap)) {
+        if (text.includes(key) && !days.includes(num)) {
+          days.push(num);
+        }
+      }
+      return days.length > 0 ? days : [0, 1, 2, 3, 4, 6];
+    };
     const docHeaders = (docRows[0] || []).map((h) => String(h).trim().toLowerCase());
     const docNameIdx = docHeaders.indexOf("doctorname");
     const docBranchIdx = docHeaders.indexOf("branch");
@@ -643,6 +961,10 @@ var GoogleSheetsService = class {
     const docCalIdx = docHeaders.indexOf("calendarid");
     const docTitleIdx = docHeaders.indexOf("doctortitleexperience");
     const docCapacityIdx = docHeaders.indexOf("dailypatientcapacity");
+    const docDaysIdx = docHeaders.findIndex((h) => h.includes("workingday") || h.includes("days"));
+    const docHoursIdx = docHeaders.findIndex((h) => h.includes("workinghours") || h.includes("workinghour"));
+    const docBreakIdx = docHeaders.findIndex((h) => h.includes("breaktime") || h.includes("break"));
+    const docOffIdx = docHeaders.findIndex((h) => h.includes("offday") || h.includes("offday") || h.includes("holiday"));
     const secretaryPhone = docPhoneIdx !== -1 && docRows[1]?.[docPhoneIdx]?.trim() ? docRows[1][docPhoneIdx].trim() : "07881015584";
     const docDataRows = docRows.slice(1);
     const doctors = docDataRows.map((d, idx) => {
@@ -652,7 +974,13 @@ var GoogleSheetsService = class {
       const docSpec = docSpecIdx !== -1 && d[docSpecIdx] ? d[docSpecIdx].trim() : "\u0637\u0628 \u0623\u0633\u0646\u0627\u0646 \u0639\u0627\u0645";
       const calId = docCalIdx !== -1 && d[docCalIdx] ? d[docCalIdx].trim() : "primary";
       const matchingBranch = branches.find((b) => b.name.trim() === docBranchName) || branches[0];
-      const parsedHours = parseWorkingHoursRange(matchingBranch.workingHours);
+      const rawDoctorHours = docHoursIdx !== -1 && d[docHoursIdx] ? d[docHoursIdx].trim() : "";
+      const parsedHours = rawDoctorHours ? parseWorkingHoursRange(rawDoctorHours) : parseWorkingHoursRange(matchingBranch.workingHours);
+      const rawDaysStr = docDaysIdx !== -1 && d[docDaysIdx] ? d[docDaysIdx].trim() : "";
+      const parsedDays = parseWorkingDays(rawDaysStr);
+      const rawBreaks = docBreakIdx !== -1 && d[docBreakIdx] ? d[docBreakIdx].trim() : "";
+      const rawOffDays = docOffIdx !== -1 && d[docOffIdx] ? d[docOffIdx].trim() : "";
+      const offDays = rawOffDays ? rawOffDays.split(/[,،;]/).map((x) => x.trim()).filter(Boolean) : [];
       return {
         id: `d_${idx + 1}`,
         branchId: matchingBranch.id,
@@ -663,10 +991,12 @@ var GoogleSheetsService = class {
         services: [],
         calendarId: calId,
         doctorTitleExperience: docTitleIdx !== -1 && d[docTitleIdx] ? d[docTitleIdx].trim() : "",
-        dailyPatientCapacity: docCapacityIdx !== -1 && d[docCapacityIdx] ? parseInt(d[docCapacityIdx]) || 20 : 20,
-        workingDays: [0, 1, 2, 3, 4, 6],
+        dailyPatientCapacity: docCapacityIdx !== -1 && d[docCapacityIdx] ? parseInt(String(d[docCapacityIdx]).replace(/[^0-9]/g, "")) || 20 : 20,
+        breakTimes: rawBreaks || void 0,
+        offDays,
+        workingDays: parsedDays,
         workingHours: {
-          days: [0, 1, 2, 3, 4, 6],
+          days: parsedDays,
           startHour: parsedHours.startHour,
           endHour: parsedHours.endHour,
           slotDurationMinutes: 30
@@ -676,9 +1006,11 @@ var GoogleSheetsService = class {
     const servHeaders = (servRows[0] || []).map((h) => String(h).trim().toLowerCase());
     const servNameIdx = servHeaders.indexOf("name");
     const servDeptIdx = servHeaders.indexOf("department");
-    const servPriceIdx = servHeaders.indexOf("price");
+    const servPriceIdx = servHeaders.findIndex((h) => h === "price" || h === "price_min" || h === "pricemin");
+    const servPriceMinIdx = servHeaders.findIndex((h) => h === "price_min" || h === "pricemin");
+    const servPriceMaxIdx = servHeaders.findIndex((h) => h === "price_max" || h === "pricemax");
     const servDoctorIdx = servHeaders.indexOf("doctor");
-    const servDurationIdx = servHeaders.indexOf("duration");
+    const servDurationIdx = servHeaders.findIndex((h) => h === "duration" || h === "durationminutes");
     const servOfferIdx = servHeaders.indexOf("offer");
     const servPreIdx = servHeaders.indexOf("preappointmentinstructions");
     const servPostIdx = servHeaders.indexOf("postcareadvice");
@@ -687,14 +1019,18 @@ var GoogleSheetsService = class {
       const sName = servNameIdx !== -1 && s[servNameIdx] ? s[servNameIdx].trim() : "";
       if (!sName) throw new Error(`[Google Sheets Error] Missing service name at row ${idx + 2} in 'Services_Config'.`);
       const sDept = servDeptIdx !== -1 && s[servDeptIdx] ? s[servDeptIdx].trim() : "";
-      const rawPrice = servPriceIdx !== -1 && s[servPriceIdx] ? s[servPriceIdx].trim().replace(/[^0-9]/g, "") : "0";
-      const sPrice = parseInt(rawPrice) || 0;
-      const sDuration = servDurationIdx !== -1 && s[servDurationIdx] ? parseInt(s[servDurationIdx]) || 30 : 30;
+      const toNumber = (v) => parseInt(String(v || "").replace(/[^0-9]/g, "")) || 0;
+      const sPriceMin = servPriceMinIdx !== -1 ? toNumber(s[servPriceMinIdx]) : 0;
+      const sPriceMax = servPriceMaxIdx !== -1 ? toNumber(s[servPriceMaxIdx]) : 0;
+      const sPrice = servPriceIdx !== -1 ? toNumber(s[servPriceIdx]) : sPriceMax || sPriceMin;
+      const sDuration = servDurationIdx !== -1 && s[servDurationIdx] ? toNumber(s[servDurationIdx]) || 30 : 30;
       return {
         id: `s_${idx + 1}`,
         name: sName,
         department: sDept,
         price: sPrice,
+        priceMin: sPriceMin,
+        priceMax: sPriceMax,
         durationMinutes: sDuration,
         doctorName: servDoctorIdx !== -1 && s[servDoctorIdx] ? s[servDoctorIdx].trim() : "",
         offer: servOfferIdx !== -1 && s[servOfferIdx] ? s[servOfferIdx].trim() : "",
@@ -725,6 +1061,48 @@ var GoogleSheetsService = class {
     this.cachedTenantConfig = tenantConfig;
     this.cacheTimestamp = Date.now();
     return tenantConfig;
+  }
+  /**
+   * Fetch ALL active (non-cancelled) bookings from the live Bookings tab.
+   * Column map: A=code B=name C=phone D=branch E=service F=dateTime G=duration H=status
+   *             I=notes J=doctorName K=reminderStatus L=platform M=department N=calendarEventId O=calendarId
+   * Used by the slot engine to guarantee zero double-booking against the live sheet.
+   */
+  static async fetchActiveBookings(fromDate = "2000-01-01") {
+    try {
+      const rows = await this.fetchSheetValues("Bookings!A1:O2000");
+      if (!rows || rows.length < 2) return [];
+      const booked = [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        const status = String(r[7] || "").toUpperCase();
+        if (status === "CANCELLED" || status === "") continue;
+        const dateTimeStr = String(r[5] || "");
+        const date = dateTimeStr.split(" ")[0] || "";
+        const startTime = dateTimeStr.split(" ")[1] || "";
+        if (!date || !startTime || date < fromDate) continue;
+        const duration = parseInt(String(r[6])) || 30;
+        const [sh, sm] = startTime.split(":").map(Number);
+        const totalEnd = (sh || 0) * 60 + (sm || 0) + duration;
+        const endH = Math.floor(totalEnd / 60).toString().padStart(2, "0");
+        const endM = (totalEnd % 60).toString().padStart(2, "0");
+        booked.push({
+          bookingCode: String(r[0] || ""),
+          doctorName: String(r[9] || "").trim() || void 0,
+          date,
+          startTime,
+          endTime: `${endH}:${endM}`,
+          status,
+          patientPhone: String(r[2] || ""),
+          calendarEventId: r[13] ? String(r[13]).trim() : void 0,
+          calendarId: r[14] ? String(r[14]).trim() : void 0
+        });
+      }
+      return booked;
+    } catch (err) {
+      console.warn("[Google Sheets fetchActiveBookings Warning]:", err);
+      return [];
+    }
   }
   /**
    * Lookup patient CRM for Returning Patient Zero-Reask Protocol
@@ -762,31 +1140,88 @@ var GoogleSheetsService = class {
     }
   }
   /**
-   * Save or update Patient in Patients_CRM tab
+   * Save or UPDATE the patient in Patients_CRM tab.
+   * If the patient already exists (matched by normalized phone), the existing row is updated:
+   * TotalBookings is incremented, LastVisitDate refreshed, NoShowCount preserved.
+   * Otherwise a new row is appended.
+   * Column map: A=phone B=patientName C=platform D=totalBookings E=lastVisitDate F=noShowCount G=notes
    */
   static async savePatientCRM(patient) {
+    const token = await this.getAccessToken();
+    if (!token) return false;
+    const cleanName = patient.patientName.replace(/^=/, "'=");
+    const cleanPhone = String(patient.phoneNumber || "").replace(/[^0-9]/g, "");
+    const visitDate = patient.lastVisitDate || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    const newTotalBookings = patient.totalBookings || 1;
     try {
-      const token = await this.getAccessToken();
-      if (!token) return;
-      const cleanName = patient.patientName.replace(/^=/, "'=");
+      const rows = await this.fetchSheetValues("Patients_CRM!A1:G1000");
+      if (rows && rows.length >= 2) {
+        const headers = (rows[0] || []).map((h) => String(h).trim().toLowerCase());
+        const phoneIdx = headers.indexOf("phonenumber");
+        const bookingsIdx = headers.indexOf("totalbookings");
+        const lastVisitIdx = headers.indexOf("lastvisitdate");
+        const noShowIdx = headers.indexOf("noshowcount");
+        const nameIdx = headers.indexOf("patientname");
+        const platformIdx = headers.indexOf("platform");
+        const notesIdx = headers.indexOf("notes");
+        for (let i = 1; i < rows.length; i++) {
+          const rPhone = String(rows[i][phoneIdx] || "").replace(/[^0-9]/g, "");
+          if (rPhone && rPhone === cleanPhone) {
+            const rowIndex = i + 1;
+            const existingBookings = bookingsIdx !== -1 && rows[i][bookingsIdx] ? parseInt(String(rows[i][bookingsIdx])) || 0 : 0;
+            const noShow = noShowIdx !== -1 && rows[i][noShowIdx] ? parseInt(String(rows[i][noShowIdx])) || 0 : 0;
+            const updates = [];
+            if (bookingsIdx !== -1) updates.push([`Patients_CRM!D${rowIndex}`, [[existingBookings + newTotalBookings]]]);
+            if (lastVisitIdx !== -1) updates.push([`Patients_CRM!E${rowIndex}`, [[visitDate]]]);
+            if (nameIdx !== -1 && rows[i][nameIdx] !== patient.patientName) updates.push([`Patients_CRM!B${rowIndex}`, [[cleanName]]]);
+            if (platformIdx !== -1 && !rows[i][platformIdx]) updates.push([`Patients_CRM!C${rowIndex}`, [[patient.platform || "WhatsApp"]]]);
+            if (notesIdx !== -1 && patient.notes) updates.push([`Patients_CRM!G${rowIndex}`, [[patient.notes]]]);
+            if (updates.length > 0) {
+              const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchUpdate?valueInputOption=USER_ENTERED`;
+              const res = await fetch(url, {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  valueInputOption: "USER_ENTERED",
+                  data: updates.map(([range, values]) => ({ range, values }))
+                })
+              });
+              if (res.ok) {
+                console.log(`[Google Sheets CRM Update] Updated existing patient ${cleanPhone} (total bookings now ${existingBookings + newTotalBookings})`);
+                return true;
+              }
+            }
+            return true;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[Google Sheets CRM Update Warning]:", err);
+    }
+    try {
       const values = [[
         patient.phoneNumber,
         cleanName,
         patient.platform || "WhatsApp",
-        patient.totalBookings || 1,
-        patient.lastVisitDate || (/* @__PURE__ */ new Date()).toISOString().split("T")[0],
+        newTotalBookings,
+        visitDate,
         patient.noShowCount || 0,
         patient.notes || ""
       ]];
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Patients_CRM!A:G:append?valueInputOption=USER_ENTERED`;
-      await fetch(url, {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ values })
       });
+      if (res.ok) {
+        console.log(`[Google Sheets CRM] Appended new patient ${cleanPhone}`);
+        return true;
+      }
     } catch (err) {
       console.warn("[Google Sheets CRM Save Warning]:", err);
     }
+    return false;
   }
   /**
    * Log human handoff or complaint into Complaints tab
@@ -848,12 +1283,13 @@ var GoogleSheetsService = class {
     }
   }
   /**
-   * Append a new booking to Google Sheets 'Bookings' tab
+   * Append a new booking to Google Sheets 'Bookings' tab (15 columns A:O).
+   * Returns true only when Google Sheets confirmed the write (used for calendar rollback).
    */
   static async saveBooking(booking) {
     try {
       const token = await this.getAccessToken();
-      if (!token) return;
+      if (!token) return false;
       const cleanName = booking.patientName.replace(/^=/, "'=");
       const values = [[
         booking.bookingCode,
@@ -866,11 +1302,13 @@ var GoogleSheetsService = class {
         booking.status,
         booking.notes || "",
         booking.doctorName,
-        "PENDING",
-        "WhatsApp",
-        booking.department || "\u0639\u0627\u0645"
+        booking.reminderStatus || "PENDING",
+        booking.platform || "WhatsApp",
+        booking.department || "\u0639\u0627\u0645",
+        booking.calendarEventId || "",
+        booking.calendarId || ""
       ]];
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Bookings!A:M:append?valueInputOption=USER_ENTERED`;
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Bookings!A:O:append?valueInputOption=USER_ENTERED`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
@@ -878,9 +1316,14 @@ var GoogleSheetsService = class {
       });
       if (res.ok) {
         console.log(`[Google Sheets API] Saved booking '${booking.bookingCode}' for ${booking.patientName}`);
+        return true;
+      } else {
+        console.error(`[Google Sheets Save Booking Error] HTTP ${res.status}:`, await res.text());
+        return false;
       }
     } catch (err) {
       console.error("[Google Sheets Save Booking Error]:", err);
+      return false;
     }
   }
   /**
@@ -897,15 +1340,18 @@ var GoogleSheetsService = class {
         const phone = (r[2] || "").replace(/[^0-9]/g, "");
         const status = (r[7] || "").toUpperCase();
         if ((phone === cleanPhone || code.includes(phoneNumber)) && status !== "CANCELLED") {
+          const dateTimeStr = r[5] || "";
           return {
             bookingCode: code,
             patientName: r[1] || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
             patientPhone: r[2] || phoneNumber,
             branchName: r[3] || "",
             serviceName: r[4] || "",
-            date: (r[5] || "").split(" ")[0] || "",
-            startTime: (r[5] || "").split(" ")[1] || "",
+            date: dateTimeStr.split(" ")[0] || "",
+            startTime: dateTimeStr.split(" ")[1] || "",
+            endTime: "",
             durationMinutes: parseInt(r[6]) || 30,
+            patientTag: "RETURNING",
             status,
             notes: r[8] || "",
             doctorName: r[9] || "",
@@ -913,7 +1359,9 @@ var GoogleSheetsService = class {
             branchId: "",
             doctorId: "",
             serviceId: "",
-            createdAt: ""
+            createdAt: "",
+            calendarEventId: r[13] ? String(r[13]).trim() : void 0,
+            calendarId: r[14] ? String(r[14]).trim() : void 0
           };
         }
       }
@@ -923,14 +1371,15 @@ var GoogleSheetsService = class {
     }
   }
   /**
-   * Cancel Active Booking in Google Sheets Bookings tab
+   * Cancel Active Booking in Google Sheets Bookings tab (Column H = CANCELLED).
+   * Returns the booking's calendar event info so the caller can also delete the Google Calendar event.
    */
   static async cancelBookingInSheet(bookingCode) {
     try {
       const token = await this.getAccessToken();
-      if (!token) return false;
-      const rows = await this.fetchSheetValues("Bookings!A1:Z500");
-      if (!rows || rows.length < 2) return false;
+      if (!token) return null;
+      const rows = await this.fetchSheetValues("Bookings!A1:O1000");
+      if (!rows || rows.length < 2) return null;
       for (let i = 1; i < rows.length; i++) {
         const code = rows[i][0] || "";
         if (code === bookingCode) {
@@ -941,12 +1390,19 @@ var GoogleSheetsService = class {
             headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
             body: JSON.stringify({ values: [["CANCELLED"]] })
           });
-          return res.ok;
+          if (res.ok) {
+            return {
+              bookingCode,
+              calendarEventId: rows[i][13] ? String(rows[i][13]).trim() : void 0,
+              calendarId: rows[i][14] ? String(rows[i][14]).trim() : void 0
+            };
+          }
+          return null;
         }
       }
-      return false;
+      return null;
     } catch {
-      return false;
+      return null;
     }
   }
   /**
@@ -977,20 +1433,26 @@ var GoogleSheetsService = class {
     }
   }
   /**
-   * Log Analytics row in Google Sheets Analytics tab
+   * Log Analytics row in Google Sheets Analytics tab.
+   * Analytics columns: A=Date B=TotalMessages C=TotalBookings D=CancelledBookings E=NoShows F=RecoveredRevenue
+   * Event details are mirrored to Analytics_Logs for auditability.
    */
   static async logAnalytics(event, details) {
     try {
       const token = await this.getAccessToken();
       if (!token) return false;
+      const todayStr = getBaghdadToday();
+      const totalBookings = event === "BOOKING_CONFIRMED" ? 1 : 0;
+      const cancelledBookings = event === "BOOKING_CANCELLED" ? 1 : 0;
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Analytics!A1:append?valueInputOption=USER_ENTERED`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          values: [[(/* @__PURE__ */ new Date()).toISOString(), event, details]]
+          values: [[todayStr, 1, totalBookings, cancelledBookings, 0, 0]]
         })
       });
+      await this.logSystemError(`[${event}] ${details}`, "", "");
       return res.ok;
     } catch {
       return false;
@@ -999,31 +1461,50 @@ var GoogleSheetsService = class {
 };
 
 // src/services/google-calendar.ts
+import { google as google2 } from "googleapis";
+import fs2 from "fs";
 var GoogleCalendarService = class {
   /**
-   * Fetch Access Token dynamically from Google OAuth2 Refresh Token
+   * Fetch Access Token dynamically from Service Account (Env Var GOOGLE_SERVICE_ACCOUNT_JSON / google-creds.json)
+   * OAuth2 refresh tokens are completely eliminated for strict enterprise security.
    */
   static async getAccessToken() {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-    if (!clientId || !clientSecret || !refreshToken) return null;
     try {
-      const res = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: refreshToken,
-          grant_type: "refresh_token"
-        })
-      });
-      const data = await res.json();
-      return data.access_token || null;
-    } catch {
-      return null;
+      const saJsonEnv = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+      if (saJsonEnv) {
+        const credentials = JSON.parse(saJsonEnv);
+        const auth = new google2.auth.GoogleAuth({
+          credentials,
+          scopes: [
+            "https://www.googleapis.com/auth/calendar",
+            "https://www.googleapis.com/auth/spreadsheets"
+          ]
+        });
+        const client = await auth.getClient();
+        const tokenResponse = await client.getAccessToken();
+        if (tokenResponse.token) return tokenResponse.token;
+      }
+    } catch (envErr) {
+      console.warn("[Calendar Env Service Account Auth Warning]:", envErr);
     }
+    try {
+      const credsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || "google-creds.json";
+      if (fs2.existsSync(credsPath)) {
+        const auth = new google2.auth.GoogleAuth({
+          keyFile: credsPath,
+          scopes: [
+            "https://www.googleapis.com/auth/calendar",
+            "https://www.googleapis.com/auth/spreadsheets"
+          ]
+        });
+        const client = await auth.getClient();
+        const tokenResponse = await client.getAccessToken();
+        if (tokenResponse.token) return tokenResponse.token;
+      }
+    } catch (saErr) {
+      console.warn("[Calendar File Service Account Auth Warning]:", saErr);
+    }
+    return null;
   }
   /**
    * Sync confirmed booking directly into doctor's Google Calendar via Google Calendar REST API v3
@@ -1034,14 +1515,15 @@ var GoogleCalendarService = class {
       if (!token) return null;
       const calendarId = doctor.calendarId || "primary";
       const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
-      const startDateTime = `${booking.date}T${booking.startTime}:00+03:00`;
-      const endDateTime = `${booking.date}T${booking.endTime}:00+03:00`;
+      const startDateTime = `${booking.date}T${booking.startTime}:00`;
+      const endDateTime = `${booking.date}T${booking.endTime}:00`;
       const event = {
         summary: `\u062D\u062C\u0632 \u0637\u0628\u064A: ${booking.patientName} (${booking.bookingCode})`,
         description: `\u062E\u062F\u0645\u0629: ${booking.serviceName}
 \u0645\u0631\u064A\u0636: ${booking.patientName}
 \u0647\u0627\u062A\u0641: ${booking.patientPhone}
-\u0641\u0631\u0639: ${booking.branchName}`,
+\u0641\u0631\u0639: ${booking.branchName}
+\u0643\u0648\u062F \u0627\u0644\u062D\u062C\u0632: ${booking.bookingCode}`,
         start: { dateTime: startDateTime, timeZone: "Asia/Baghdad" },
         end: { dateTime: endDateTime, timeZone: "Asia/Baghdad" }
       };
@@ -1086,11 +1568,263 @@ var GoogleCalendarService = class {
   }
 };
 
+// src/core/interpretation.ts
+function normalizeArabicText(text) {
+  if (!text) return "";
+  return text.replace(/[\u064B-\u0652]/g, "").replace(/[أإآ]/g, "\u0627").replace(/ة/g, "\u0647").replace(/ى/g, "\u064A").replace(/(.)\1+/g, "$1").replace(/\s+/g, " ").trim();
+}
+var ARABIC_DIGITS = {
+  "\u0660": "0",
+  "\u0661": "1",
+  "\u0662": "2",
+  "\u0663": "3",
+  "\u0664": "4",
+  "\u0665": "5",
+  "\u0666": "6",
+  "\u0667": "7",
+  "\u0668": "8",
+  "\u0669": "9"
+};
+var PERSIAN_DIGITS = {
+  "\u06F0": "0",
+  "\u06F1": "1",
+  "\u06F2": "2",
+  "\u06F3": "3",
+  "\u06F4": "4",
+  "\u06F5": "5",
+  "\u06F6": "6",
+  "\u06F7": "7",
+  "\u06F8": "8",
+  "\u06F9": "9"
+};
+function toAsciiDigits(input) {
+  return input.replace(/[٠-٩۰-۹]/g, (ch) => ARABIC_DIGITS[ch] ?? PERSIAN_DIGITS[ch] ?? ch);
+}
+var NUMBER_WORDS = {
+  "\u0635\u0641\u0631": 0,
+  "\u0648\u0627\u062D\u062F": 1,
+  "\u0648\u062D\u062F\u0647": 1,
+  "\u0627\u062B\u0646\u0627\u0646": 2,
+  "\u0627\u062B\u0646\u064A\u0646": 2,
+  "\u0627\u062B\u0646": 2,
+  "\u062B\u0646\u064A\u0646": 2,
+  "\u062B\u0644\u0627\u062B\u0647": 3,
+  "\u062B\u0644\u0627\u062B\u0629": 3,
+  "\u062B\u0644\u0627\u062B": 3,
+  "\u0627\u0631\u0628\u0639\u0647": 4,
+  "\u0627\u0631\u0628\u0639\u0629": 4,
+  "\u0627\u0631\u0628\u0639": 4,
+  "\u062E\u0645\u0633\u0647": 5,
+  "\u062E\u0645\u0633\u0629": 5,
+  "\u062E\u0645\u0633": 5,
+  "\u0633\u062A\u0647": 6,
+  "\u0633\u062A\u0629": 6,
+  "\u0633\u062A": 6,
+  "\u0633\u0628\u0639\u0647": 7,
+  "\u0633\u0628\u0639\u0629": 7,
+  "\u0633\u0628\u0639": 7,
+  "\u062B\u0645\u0627\u0646\u064A\u0647": 8,
+  "\u062B\u0645\u0627\u0646\u064A\u0629": 8,
+  "\u062B\u0645\u0627\u0646": 8,
+  "\u062A\u0633\u0639\u0647": 9,
+  "\u062A\u0633\u0639\u0629": 9,
+  "\u062A\u0633\u0639": 9,
+  "\u0639\u0634\u0631\u0647": 10,
+  "\u0639\u0634\u0631\u0629": 10,
+  "\u0639\u0634\u0631": 10,
+  "\u0646\u0635": 30,
+  "\u0646\u0635\u0641": 30,
+  "\u0631\u0628\u0639": 15,
+  "\u0639\u0634\u0631\u064A\u0646": 20,
+  "\u062E\u0645\u0633\u064A\u0646": 50
+};
+var WEEKDAYS = {
+  "\u0627\u062D\u062F": 0,
+  "\u0627\u0644\u0627\u062D\u062F": 0,
+  "\u0627\u0644\u0623\u062D\u062F": 0,
+  "\u0627\u062B\u0646\u064A\u0646": 1,
+  "\u0627\u062B\u0646": 1,
+  "\u0627\u0644\u0627\u062B\u0646\u064A\u0646": 1,
+  "\u0627\u0644\u0625\u062B\u0646\u064A\u0646": 1,
+  "\u062B\u0644\u0627\u062B\u0627\u0621": 2,
+  "\u0627\u0644\u062B\u0644\u0627\u062B\u0627\u0621": 2,
+  "\u0627\u0631\u0628\u0639\u0627\u0621": 3,
+  "\u0623\u0631\u0628\u0639\u0627\u0621": 3,
+  "\u0627\u0644\u0627\u0631\u0628\u0639\u0627\u0621": 3,
+  "\u0627\u0644\u0623\u0631\u0628\u0639\u0627\u0621": 3,
+  "\u062E\u0645\u064A\u0633": 4,
+  "\u0627\u0644\u062E\u0645\u064A\u0633": 4,
+  "\u062C\u0645\u0639\u0647": 5,
+  "\u062C\u0645\u0639\u0629": 5,
+  "\u0627\u0644\u062C\u0645\u0639\u0647": 5,
+  "\u0627\u0644\u062C\u0645\u0639\u0629": 5,
+  "\u0633\u0628\u062A": 6,
+  "\u0627\u0644\u0633\u0628\u062A": 6
+};
+var DAY_NUMBER_WORD_PATTERN = Object.keys(NUMBER_WORDS).filter((k) => !["\u0646\u0635", "\u0646\u0635\u0641", "\u0631\u0628\u0639", "\u0639\u0634\u0631\u064A\u0646", "\u062E\u0645\u0633\u064A\u0646"].includes(k)).sort((a, b) => b.length - a.length).join("|");
+var DAY_TERMS = [
+  // Specific "the day after tomorrow" phrases first (before plain "باجر")
+  { regex: /(?:عكب|عقبا|بعد)\s*(باجر|بكره|بكرا|غدا|غداً)(?=\s|$)/, offset: 2, term: "\u0639\u0643\u0628 \u0628\u0627\u062C\u0631" },
+  { regex: /بعد\s*غد(?=\s|$)/, offset: 2, term: "\u0628\u0639\u062F \u063A\u062F" },
+  { regex: /(?:باجر|بكره|بكرا|غدا|غداً)(?=\s|$)/, offset: 1, term: "\u0628\u0627\u062C\u0631" },
+  { regex: /(اليوم|هذا اليوم)(?=\s|$)/, offset: 0, term: "\u0627\u0644\u064A\u0648\u0645" },
+  { regex: new RegExp(`(\u0628\u0639\u062F|\u0639\u0644\u0649|\u0639\u0644\u0627|\u0639\u0644\u064A)\\s*(?:)([\u0660-\u0669\u06F0-\u06F90-9]|${DAY_NUMBER_WORD_PATTERN})\\s*(\u0627\u064A\u0627\u0645|\u0623\u064A\u0627\u0645|\u064A\u0648\u0645|\u064A\u0645)?(?=\\s|$)`), offset: -1, term: "\u0639\u062F\u062F \u0623\u064A\u0627\u0645" },
+  { regex: /(بعد|على|علا|علي)\s*(اسبوع|أسبوع)(?=\s|$)/, offset: 7, term: "\u0628\u0639\u062F \u0623\u0633\u0628\u0648\u0639" }
+];
+function interpretDayTerm(text) {
+  if (!text) return null;
+  const norm = normalizeArabicText(toAsciiDigits(text));
+  for (const { regex, offset, term } of DAY_TERMS) {
+    const m = norm.match(regex);
+    if (!m) continue;
+    if (offset === -1) {
+      const numTok = m[2];
+      const n = /^\d+$/.test(numTok) ? parseInt(numTok, 10) : NUMBER_WORDS[numTok] ?? 0;
+      if (n >= 1 && n <= 30) return { term: `\u0628\u0639\u062F ${n} \u0623\u064A\u0627\u0645`, offset: n };
+      continue;
+    }
+    return { term, offset };
+  }
+  for (const [key, dayNum] of Object.entries(WEEKDAYS)) {
+    const regex = new RegExp(`(^|\\s|\u064A\u0648\u0645|\u0628\u0648\u0645)${key}($|\\s)`);
+    if (regex.test(norm)) {
+      const today = new Date(getBaghdadToday()).getDay();
+      let offset = (dayNum - today + 7) % 7;
+      if (offset === 0) offset = 7;
+      return { term: key, offset };
+    }
+  }
+  return null;
+}
+var TIME_OF_DAY = [
+  { regex: /(الصبح|الصبحية|الصباح|بكرا الصبح)(?=\s|$)/, range: { startMinute: 8 * 60, endMinute: 11 * 60 }, term: "\u0627\u0644\u0635\u0628\u062D" },
+  { regex: /(الضحى|الضحة)(?=\s|$)/, range: { startMinute: 9 * 60, endMinute: 12 * 60 }, term: "\u0627\u0644\u0636\u062D\u0649" },
+  { regex: /(الظهر|نص النهار|ظهيرة)(?=\s|$)/, range: { startMinute: 12 * 60, endMinute: 15 * 60 }, term: "\u0627\u0644\u0638\u0647\u0631" },
+  { regex: /(العصر|بعد الظهر)(?=\s|$)/, range: { startMinute: 15 * 60, endMinute: 18 * 60 }, term: "\u0627\u0644\u0639\u0635\u0631" },
+  { regex: /(المغرب|بعد العصر)(?=\s|$)/, range: { startMinute: 18 * 60, endMinute: 20 * 60 }, term: "\u0627\u0644\u0645\u063A\u0631\u0628" },
+  { regex: /(الليل|ليلا|بليل)(?=\s|$)/, range: { startMinute: 19 * 60, endMinute: 23 * 60 }, term: "\u0627\u0644\u0644\u064A\u0644" }
+];
+function interpretTimeTerm(text) {
+  if (!text) return null;
+  const norm = normalizeArabicText(toAsciiDigits(text));
+  const hhmm = norm.match(/(?:الساعه|ساعه|ب\s*)?(\d{1,2})\s*[:.،]\s*(\d{2})\b/);
+  if (hhmm) {
+    const hh = parseInt(hhmm[1], 10);
+    const mm = parseInt(hhmm[2], 10);
+    if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) return { kind: "exact", value: { hh, mm } };
+  }
+  const numberHour = norm.match(/الساعه\s+(\S+)/);
+  if (numberHour) {
+    const word = numberHour[1].replace(/[،.]+$/, "");
+    if (NUMBER_WORDS[word] !== void 0) {
+      const mmMatch = norm.match(/(ونص|ونصف|نص|نصف|وربع)/);
+      const mm = mmMatch ? mmMatch[1].includes("\u0631\u0628\u0639") ? 15 : 30 : 0;
+      return { kind: "exact", value: { hh: NUMBER_WORDS[word], mm } };
+    }
+  }
+  const plainHour = norm.match(/^(\d{1,2})\s*(ونص|ونصف|نص|نصف)?$/);
+  if (plainHour) {
+    const hh = parseInt(plainHour[1], 10);
+    if (hh >= 0 && hh <= 23) {
+      const mm = plainHour[2] ? 30 : 0;
+      return { kind: "exact", value: { hh, mm } };
+    }
+  }
+  for (const { regex, range, term } of TIME_OF_DAY) {
+    if (regex.test(norm)) return { kind: "range", value: { ...range, term } };
+  }
+  return null;
+}
+function bagSimilarity(a, b) {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const count = (s) => {
+    const map = /* @__PURE__ */ new Map();
+    for (const ch of s) map.set(ch, (map.get(ch) || 0) + 1);
+    return map;
+  };
+  const ma = count(a);
+  const mb = count(b);
+  let common = 0;
+  for (const [ch, n] of ma) common += Math.min(n, mb.get(ch) || 0);
+  return common / Math.max(a.length, b.length);
+}
+function digramOverlap(a, b) {
+  if (a.length < 3 || b.length < 3) return 1;
+  const digrams = (s) => {
+    const set = /* @__PURE__ */ new Set();
+    for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+    return set;
+  };
+  const sa = digrams(a);
+  const sb = digrams(b);
+  const smaller = sa.size <= sb.size ? sa : sb;
+  const larger = sa.size <= sb.size ? sb : sa;
+  let common = 0;
+  for (const d of smaller) if (larger.has(d)) common++;
+  return common / smaller.size;
+}
+function wordFuzzyScore(userWord, candWord) {
+  if (!userWord || !candWord) return 0;
+  if (userWord === candWord) return 1;
+  const stripArticle = (s) => s.replace(/^(?:وال|ال)/, "");
+  const [u, c] = [stripArticle(userWord), stripArticle(candWord)];
+  if (u === c) return 1;
+  if (u.length >= 3 && c.startsWith(u)) return 0.95;
+  if (c.length >= 3 && u.startsWith(c)) return 0.85;
+  const bag = bagSimilarity(u || userWord, c || candWord);
+  const dig = digramOverlap(u || userWord, c || candWord);
+  if (bag >= 0.6 && dig >= 0.3) return bag;
+  if (bag >= 0.55 && Math.max(u.length, c.length) >= 4 && dig >= 0.3) return bag;
+  return 0;
+}
+function entityMentionScore(name, text) {
+  const candWords = normalizeArabicText(name).split(/\s+/).filter((w) => w.length >= 2);
+  if (candWords.length === 0) return 0;
+  const textWords = normalizeArabicText(text).split(/\s+/).filter((w) => w.length >= 1);
+  if (textWords.length === 0) return 0;
+  let matchedWords = 0;
+  const used = /* @__PURE__ */ new Set();
+  for (const cw of candWords) {
+    let best = 0;
+    let bestIdx = -1;
+    for (let i = 0; i < textWords.length; i++) {
+      if (used.has(i)) continue;
+      const score = wordFuzzyScore(cw, textWords[i]);
+      if (score > best) {
+        best = score;
+        bestIdx = i;
+      }
+    }
+    if (best >= 0.55 && bestIdx >= 0) {
+      matchedWords++;
+      used.add(bestIdx);
+    }
+  }
+  const ratio = matchedWords / candWords.length;
+  if (candWords.length >= 3) return ratio >= 2 / 3 ? ratio : 0;
+  return ratio >= 1 ? 1 : 0;
+}
+function dateFromOffset(offset) {
+  return formatDate(addDays(new Date(getBaghdadToday()), offset));
+}
+
 // src/core/dynamic-slot-engine.ts
+var CANCEL_REGEX = /إلغاء الحجز|الغاء الحجز|الغي الحجز|أريد ألغي|إلغاء موعدي|الغاء موعدي|نلغي الحجز|إلغاء حجز|الغاء حجز/i;
+var MODIFY_REGEX = /تعديل الحجز|أغير الموعد|تغيير الموعد|عدل الموعد|تعديل موعدي|أغير وقت|تغيير وقت|أغير التاريخ/i;
+var JUNK_NAME_RE = /^(undefined|null|none|لا يوجد|بدون|n\/a)$/i;
+var CONFLICT_RE = /انحجز|امتلأت|قبل شوي|قبل قليل/i;
+var MAX_CONDUCTOR_DEPTH = 4;
 var DynamicSlotEngine = class {
   static sessions = /* @__PURE__ */ new Map();
   static getSessionsStore() {
     return this.sessions;
+  }
+  /**
+   * Helper to get Baghdad Today Date String (YYYY-MM-DD)
+   */
+  static getBaghdadTodayDate() {
+    return getBaghdadToday();
   }
   /**
    * Format operational working hours cleanly (12-hour format e.g., 9 صباحاً لـ 4 عصراً)
@@ -1104,24 +1838,20 @@ var DynamicSlotEngine = class {
     return `${formatH(startHour)} \u0644\u063A\u0627\u064A\u0629 ${formatH(endHour)}`;
   }
   /**
-   * Helper to format dynamic branch departments list
-   */
-  static getBranchDepartmentsList(tenant) {
-    return tenant.branches.map((b, i) => {
-      const branchDoctors = tenant.doctors.filter((d) => d.branchId === b.id || d.branchName === b.name);
-      const branchServices = tenant.services.filter(
-        (s) => branchDoctors.some((d) => d.name === s.doctorName || !s.doctorName)
-      );
-      const branchDepts = Array.from(new Set(branchServices.map((s) => s.department).filter(Boolean)));
-      const deptStr = branchDepts.length > 0 ? branchDepts.join(" \u060C ") : tenant.departments ? tenant.departments.join(" \u060C ") : "\u0639\u0627\u0645";
-      return `${i + 1}. \u0641\u0631\u0639 ${b.name} \u0628\u064A\u0647 \u0642\u0633\u0645 (${deptStr})`;
-    }).join("\n");
-  }
-  /**
-   * Process incoming WhatsApp user message through Dynamic Slot Engine
+   * Process incoming WhatsApp user message through the Gemini-driven conversation conductor.
    */
   static async processMessage(phone, messageText, tenant) {
-    const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    const reply = await this._processMessage(phone, messageText, tenant);
+    const session = this.sessions.get(phone);
+    if (session) {
+      if (!session.recentMessages) session.recentMessages = [];
+      session.recentMessages.push({ role: "bot", text: reply });
+      if (session.recentMessages.length > 6) session.recentMessages = session.recentMessages.slice(-6);
+    }
+    return reply;
+  }
+  static async _processMessage(phone, messageText, tenant) {
+    const todayStr = getBaghdadToday();
     const dailyLimit = parseInt(process.env.DAILY_MESSAGE_LIMIT || "1000", 10);
     const trimmedMsg = messageText.trim();
     const isExplicitReset = /^(تصفير|ريست|reset|إعادة ضبط)$/i.test(trimmedMsg);
@@ -1134,26 +1864,20 @@ var DynamicSlotEngine = class {
         tenantId: tenant.tenantId,
         currentState: "GREETING",
         status: "IN_PROGRESS",
-        slots: {
-          patientName: crmPatient?.patientName
-        },
+        slots: { patientName: crmPatient?.patientName },
         patientName: crmPatient?.patientName,
         isReturningPatient: !!crmPatient,
         patientTag: crmPatient ? "RETURNING" : "NEW",
         failedNluAttempts: 0,
         lastInteractionTime: Date.now(),
         dailyMessageCount: 1,
-        lastMessageDate: todayStr
+        lastMessageDate: todayStr,
+        hasWelcomed: true,
+        recentMessages: [{ role: "user", text: trimmedMsg }]
       };
       this.sessions.set(phone, newSession);
-      const branchDeptStr = this.getBranchDepartmentsList(tenant);
-      return `\u062A\u0645 \u062A\u0635\u0641\u064A\u0631 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0648\u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0636\u0628\u0637 \u0628\u0646\u062C\u0627\u062D \u0639\u064A\u0646\u064A. \u{1F338}
-
-\u0635\u0628\u0627\u062D \u0627\u0644\u0646\u0648\u0631 \u0648\u0627\u0644\u0633\u0631\u0648\u0631\u060C \u0646\u0648\u0631\u062A \u0639\u064A\u0627\u062F\u0629 ${tenant.clinicName}. \u062A\u062F\u0644\u0644\u060C \u0647\u0627\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0639\u0646\u062F\u0646\u0627 \u0648\u0628\u0623\u064A \u0648\u0627\u062D\u062F \u062A\u062D\u0628 \u0646\u062D\u062C\u0632\u0644\u0643:
-
-${branchDeptStr}
-
-\u0634\u0648\u0641 \u0623\u0642\u0631\u0628 \u0641\u0631\u0639 \u0648\u064A\u0627 \u0642\u0633\u0645 \u062A\u062D\u062A\u0627\u062C \u0648\u062A\u062F\u0644\u0644 \u0639\u0644\u0645\u0648\u062F \u0623\u0646\u0637\u064A\u0643 \u0623\u0642\u0631\u0628 \u062D\u062C\u0632\u060C \u0634\u0646\u0648 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0644\u064A \u064A\u0646\u0627\u0633\u0628\u0643 \u062D\u062A\u0649 \u0646\u0643\u0645\u0644 \u0628\u0627\u0642\u064A \u0627\u0644\u0625\u062C\u0631\u0627\u0621\u0627\u062A \u0648\u064A\u0627\u0643\u061F`;
+      const activeBookings = await GoogleSheetsService.fetchActiveBookings(todayStr);
+      return this.runConductor(newSession, trimmedMsg, tenant, activeBookings, "\u062A\u0645 \u062A\u0635\u0641\u064A\u0631 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0648\u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0636\u0628\u0637 \u2014 \u0631\u062D\u0628\u064A \u0628\u0627\u0644\u0632\u0628\u0648\u0646 \u0648\u0627\u0628\u062F\u0626\u064A \u0631\u0648\u062A\u064A\u0646 \u0627\u0644\u062D\u062C\u0632 \u0645\u0646 \u0623\u0648\u0644 \u0633\u0624\u0627\u0644 (\u0627\u0644\u0641\u0631\u0639).", 0);
     }
     let session = this.sessions.get(phone);
     if (!session) {
@@ -1163,16 +1887,16 @@ ${branchDeptStr}
         tenantId: tenant.tenantId,
         currentState: "GREETING",
         status: "IN_PROGRESS",
-        slots: {
-          patientName: crmPatient?.patientName
-        },
+        slots: { patientName: crmPatient?.patientName },
         patientName: crmPatient?.patientName,
         isReturningPatient: !!crmPatient,
         patientTag: crmPatient ? "RETURNING" : "NEW",
         failedNluAttempts: 0,
         lastInteractionTime: Date.now(),
         dailyMessageCount: 1,
-        lastMessageDate: todayStr
+        lastMessageDate: todayStr,
+        hasWelcomed: false,
+        recentMessages: []
       };
       this.sessions.set(phone, session);
     } else {
@@ -1182,22 +1906,26 @@ ${branchDeptStr}
       } else {
         session.dailyMessageCount = (session.dailyMessageCount || 0) + 1;
       }
+      if (!session.patientName || !session.slots?.patientName) {
+        const crmPatient = await GoogleSheetsService.lookupPatientCRM(phone);
+        if (crmPatient?.patientName) {
+          session.patientName = crmPatient.patientName;
+          session.isReturningPatient = true;
+          session.patientTag = "RETURNING";
+          if (!session.slots) session.slots = {};
+          session.slots.patientName = crmPatient.patientName;
+        }
+      }
     }
+    if (!session.recentMessages) session.recentMessages = [];
+    session.recentMessages.push({ role: "user", text: trimmedMsg });
+    if (session.recentMessages.length > 6) session.recentMessages = session.recentMessages.slice(-6);
     session.lastInteractionTime = Date.now();
     if ((session.dailyMessageCount || 0) > dailyLimit) {
       return `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u0648\u0635\u0644\u0646\u0627 \u0644\u0644\u062D\u062F \u0627\u0644\u0623\u0642\u0635\u0649 \u0627\u0644\u0645\u0633\u0645\u0648\u062D \u0644\u0644\u0631\u0633\u0627\u0626\u0644 \u0627\u0644\u064A\u0648\u0645\u064A\u0629. \u062A\u0642\u062F\u0631 \u062A\u062A\u0648\u0627\u0635\u0644 \u0645\u0628\u0627\u0634\u0631\u0629 \u0648\u064A\u0629 \u0627\u0644\u0633\u0643\u0631\u062A\u0627\u0631\u064A\u0629 \u0639\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645: ${tenant.secretaryPhone} \u062E\u0644\u0627\u0644 \u0633\u0627\u0639\u0627\u062A \u0627\u0644\u062F\u0648\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A\u0629.`;
     }
     if (!session.slots) {
       session.slots = { patientName: session.patientName };
-    }
-    if (session.status === "COMPLETED_LOCKED") {
-      const isNewBookingReq = /حجز جديد|موعد ثاني|تعديل|أغير/i.test(trimmedMsg);
-      if (isNewBookingReq) {
-        session.status = "IN_PROGRESS";
-        session.slots = { patientName: session.patientName };
-      } else {
-        return await GeminiService.generatePoliteClosingResponse(trimmedMsg, tenant);
-      }
     }
     try {
       let processedText = messageText;
@@ -1208,196 +1936,614 @@ ${branchDeptStr}
           return `\u0639\u0641\u0648\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u0645\u0627 \u0642\u062F\u0631\u0646\u0627 \u0646\u0633\u0645\u0639 \u0627\u0644\u0628\u0635\u0645\u0629 \u0627\u0644\u0635\u0648\u062A\u064A\u0629 \u0628\u0648\u0636\u0648\u062D. \u064A\u0631\u062C\u0649 \u0643\u062A\u0627\u0628\u0629 \u0637\u0644\u0628\u0643 \u0623\u0648 \u0625\u0639\u0627\u062F\u0629 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0628\u0635\u0645\u0629 \u0648\u062A\u062F\u0644\u0644!`;
         }
       }
-      const isExplicitHuman = /أريد أحكي ويا سكرتير|حولني على إنسان|أريد سكرتير|سكرتير/i.test(processedText);
-      if (isExplicitHuman) {
-        await GoogleSheetsService.logComplaint({
-          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-          patientName: session.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
-          phoneNumber: phone,
-          complaintContent: processedText,
-          status: "PENDING"
-        });
-        return HandoffManager.executeHandoff(session, tenant);
+      const isCancelReq = CANCEL_REGEX.test(processedText);
+      const isModifyReq = MODIFY_REGEX.test(processedText);
+      if (isCancelReq || isModifyReq) {
+        const handled = await this.handleCancelModify(session, phone, tenant, processedText, isCancelReq, isModifyReq);
+        if (handled) return handled;
       }
-      const nluResult = await GeminiService.analyzeAndExtractSlots(processedText, session.slots, tenant);
-      const numMatch = processedText.match(/^(?:رقم\s*)?([1-9]\d*)$/);
-      const inputIndex = numMatch ? parseInt(numMatch[1]) - 1 : -1;
-      if (nluResult.extractedSlots) {
-        if (nluResult.extractedSlots.branchName) session.slots.branchName = nluResult.extractedSlots.branchName;
-        if (nluResult.extractedSlots.branchId) session.slots.branchId = nluResult.extractedSlots.branchId;
-        if (nluResult.extractedSlots.department) session.slots.department = nluResult.extractedSlots.department;
-        if (nluResult.extractedSlots.serviceName) session.slots.serviceName = nluResult.extractedSlots.serviceName;
-        if (nluResult.extractedSlots.serviceId) session.slots.serviceId = nluResult.extractedSlots.serviceId;
-        if (nluResult.extractedSlots.doctorName) session.slots.doctorName = nluResult.extractedSlots.doctorName;
-        if (nluResult.extractedSlots.doctorId) session.slots.doctorId = nluResult.extractedSlots.doctorId;
-        if (nluResult.extractedSlots.date) session.slots.date = nluResult.extractedSlots.date;
-        if (nluResult.extractedSlots.startTime) session.slots.startTime = nluResult.extractedSlots.startTime;
-        if (nluResult.extractedSlots.patientName && nluResult.extractedSlots.patientName.length > 2 && !/قسم|فرع|حجز|خدمة|موعد/i.test(nluResult.extractedSlots.patientName)) {
-          session.slots.patientName = nluResult.extractedSlots.patientName;
-          session.patientName = nluResult.extractedSlots.patientName;
-        }
-      }
-      if (inputIndex >= 0) {
-        if (!session.slots.branchName && inputIndex < tenant.branches.length) {
-          session.slots.branchId = tenant.branches[inputIndex].id;
-          session.slots.branchName = tenant.branches[inputIndex].name;
-        } else if (!session.slots.serviceName) {
-          const deptServices = session.slots.department ? tenant.services.filter((s) => s.department === session.slots.department) : tenant.services;
-          const availServices = deptServices.length > 0 ? deptServices : tenant.services;
-          if (inputIndex < availServices.length) {
-            session.slots.serviceId = availServices[inputIndex].id;
-            session.slots.serviceName = availServices[inputIndex].name;
-          }
-        }
-      }
-      if (nluResult.intent === "ASK_FAQ") {
-        const faqAnswer = await GeminiService.answerFaq(processedText, tenant);
-        const missingPrompt = this.getMissingSlotPrompt(session, tenant);
-        return `${faqAnswer}
-
-${missingPrompt}`;
-      }
-      if (!session.slots.branchName && session.slots.department) {
-        const matchingBranches = tenant.branches.filter((b) => {
-          const deptServices = tenant.services.filter((s) => s.department === session.slots.department);
-          const deptDoctors = tenant.doctors.filter((d) => deptServices.some((s) => s.doctorName === d.name || !s.doctorName));
-          return deptDoctors.some((d) => d.branchName === b.name || d.branchId === b.id);
-        });
-        if (matchingBranches.length === 1) {
-          session.slots.branchId = matchingBranches[0].id;
-          session.slots.branchName = matchingBranches[0].name;
-        }
-      }
-      if (!session.slots.serviceName && session.slots.department) {
-        const deptServices = tenant.services.filter((s) => s.department === session.slots.department);
-        if (deptServices.length === 1) {
-          session.slots.serviceId = deptServices[0].id;
-          session.slots.serviceName = deptServices[0].name;
-        }
-      }
-      if (!session.slots.doctorName) {
-        const branchDocs = tenant.doctors.filter(
-          (d) => (!session.slots?.branchId || d.branchId === session.slots.branchId || d.branchName === session.slots.branchName) && (!session.slots?.department || d.specialty?.includes(session.slots.department) || tenant.services.some((s) => s.department === session.slots.department && (s.doctorName === d.name || !s.doctorName)))
-        );
-        if (branchDocs.length === 1) {
-          session.slots.doctorId = branchDocs[0].id;
-          session.slots.doctorName = branchDocs[0].name;
-        }
-      }
-      if (!session.slots.startTime && session.slots.doctorName) {
-        const doctor = tenant.doctors.find((d) => d.id === session.slots?.doctorId || d.name === session.slots?.doctorName) || tenant.doctors[0];
-        const service = tenant.services.find((s) => s.id === session.slots?.serviceId || s.name === session.slots?.serviceName);
-        const tomorrowDate = SlotGenerator.getTomorrowDate();
-        const slots = SlotGenerator.generateAvailableSlots(doctor, tomorrowDate, [], service?.durationMinutes || 30);
-        if (slots.length > 0) {
-          session.slots.date = slots[0].date;
-          session.slots.startTime = slots[0].startTime;
-          session.selectedSlot = slots[0];
-        }
-      }
-      if (this.isAllSlotsFilled(session.slots)) {
-        return await this.finalizeBooking(session, phone, tenant);
-      }
-      return this.getMissingSlotPrompt(session, tenant);
+      const activeBookings = await GoogleSheetsService.fetchActiveBookings(todayStr);
+      return await this.runConductor(session, processedText, tenant, activeBookings, null, 0);
     } catch (error) {
       console.error("[DynamicSlotEngine Error]:", error);
       await GoogleSheetsService.logSystemError(`[DynamicEngine Error]: ${error.message || String(error)}`, phone, session?.patientName);
       return `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u062D\u0635\u0644 \u0627\u0646\u0642\u0637\u0627\u0639 \u0645\u0624\u0642\u062A \u0628\u0627\u0644\u062E\u062F\u0645\u0629. \u062A\u0642\u062F\u0631 \u062A\u062A\u0648\u0627\u0635\u0644 \u0648\u062A\u0643\u0645\u0644 \u062D\u062C\u0632\u0643 \u0645\u0628\u0627\u0634\u0631\u0629 \u0648\u064A\u0629 \u0627\u0644\u0633\u0643\u0631\u062A\u0627\u0631\u064A\u0629 \u0639\u0644\u0649 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0645\u0628\u0627\u0634\u0631: ${tenant.secretaryPhone || "07881015584"} \u062E\u0644\u0627\u0644 \u0633\u0627\u0639\u0627\u062A \u0627\u0644\u062F\u0648\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A\u0629.`;
     }
   }
-  /**
-   * Check if all mandatory booking slots are filled
-   */
-  static isAllSlotsFilled(slots) {
-    return !!((slots.branchName || slots.branchId) && (slots.serviceName || slots.serviceId) && (slots.doctorName || slots.doctorId) && slots.startTime && slots.patientName);
-  }
-  /**
-   * Prompt for the single next missing slot cleanly
-   */
-  static getMissingSlotPrompt(session, tenant) {
+  // ------------------------------------------------------------------
+  // Gemini conversation conductor loop
+  // ------------------------------------------------------------------
+  static async runConductor(session, userMessage, tenant, activeBookings, toolResult, depth) {
+    if (depth > MAX_CONDUCTOR_DEPTH) {
+      return `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u062D\u0635\u0644 \u0627\u0646\u0642\u0637\u0627\u0639 \u0645\u0624\u0642\u062A \u0628\u0627\u0644\u062E\u062F\u0645\u0629. \u062A\u0642\u062F\u0631 \u062A\u062A\u0648\u0627\u0635\u0644 \u0648\u062A\u0643\u0645\u0644 \u062D\u062C\u0632\u0643 \u0645\u0628\u0627\u0634\u0631\u0629 \u0648\u064A\u0629 \u0627\u0644\u0633\u0643\u0631\u062A\u0627\u0631\u064A\u0629 \u0639\u0644\u0649 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0645\u0628\u0627\u0634\u0631: ${tenant.secretaryPhone || "07881015584"}`;
+    }
     const s = session.slots || {};
-    if (!s.branchName && !s.department) {
-      const branchDeptStr = this.getBranchDepartmentsList(tenant);
-      return `\u0635\u0628\u0627\u062D \u0627\u0644\u0646\u0648\u0631 \u0648\u0627\u0644\u0633\u0631\u0648\u0631\u060C \u0646\u0648\u0631\u062A \u0639\u064A\u0627\u062F\u0629 ${tenant.clinicName}. \u062A\u062F\u0644\u0644\u060C \u0647\u0627\u064A \u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0623\u0642\u0633\u0627\u0645\u0647\u0627 \u0627\u0644\u0645\u062A\u0648\u0641\u0631\u0629 \u0639\u0646\u062F\u0646\u0627 \u0648\u0628\u0623\u064A \u0648\u0627\u062D\u062F \u062A\u062D\u0628 \u0646\u062D\u062C\u0632\u0644\u0643:
-
-${branchDeptStr}
-
-\u0634\u0648\u0641 \u0623\u0642\u0631\u0628 \u0641\u0631\u0639 \u0648\u064A\u0627 \u0642\u0633\u0645 \u062A\u062D\u062A\u0627\u062C \u0648\u062A\u062F\u0644\u0644 \u0639\u0644\u0645\u0648\u062F \u0623\u0646\u0637\u064A\u0643 \u0623\u0642\u0631\u0628 \u062D\u062C\u0632\u060C \u0634\u0646\u0648 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0644\u064A \u064A\u0646\u0627\u0633\u0628\u0643 \u062D\u062A\u0649 \u0646\u0643\u0645\u0644 \u0628\u0627\u0642\u064A \u0627\u0644\u0625\u062C\u0631\u0627\u0621\u0627\u062A \u0648\u064A\u0627\u0643\u061F`;
+    session.slots = s;
+    const ctx = {
+      userMessage,
+      tenant,
+      slots: s,
+      patientName: session.patientName || s.patientName,
+      isReturning: !!session.isReturningPatient,
+      recentMessages: session.recentMessages || [],
+      pendingProposal: !!session.pendingProposal,
+      proposedSlot: session.proposedSlot,
+      awaitingFinalConfirm: !!session.awaitingFinalConfirm,
+      optionsOffered: session.lastPrompt?.options,
+      recommendedService: this.recommendedService(tenant, s),
+      toolResult,
+      lockedSession: session.status === "COMPLETED_LOCKED"
+    };
+    const cr = await GeminiService.conductTurn(ctx);
+    if (cr.intent === "cancel" || cr.intent === "modify") {
+      const handled = await this.handleCancelModify(session, session.phoneNumber, tenant, userMessage, cr.intent === "cancel", cr.intent === "modify");
+      if (handled) return handled;
     }
-    if (!s.serviceName) {
-      const deptServices = s.department ? tenant.services.filter((srv) => srv.department === s.department) : tenant.services;
-      const availServices = deptServices.length > 0 ? deptServices : tenant.services;
-      const servicesList = availServices.map((srv, i) => `${i + 1}. ${srv.name}${srv.price > 0 ? ` - ${srv.price} \u062F\u064A\u0646\u0627\u0631` : ""}`).join("\n\n");
-      return `\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A\u060C \u0647\u0627\u064A \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u062E\u062F\u0645\u0627\u062A \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u0639\u0646\u062F\u0646\u0627:
-
-${servicesList}
-
-(\u0648\u0646\u0631\u062C\u062D \u0644\u0643 \u0643\u0634\u0641\u064A\u0629 \u0648\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0639\u0627\u0645\u0629 \u0643\u062E\u064A\u0627\u0631 \u0623\u0648\u0644 \u0644\u062A\u0634\u062E\u064A\u0635 \u0627\u0644\u0627\u062D\u062A\u064A\u0627\u062C \u0627\u0644\u062F\u0642\u064A\u0642). \u0634\u0646\u0648 \u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0644\u064A \u062A\u062D\u0628 \u062A\u062E\u062A\u0627\u0631\u0647\u0627\u061F`;
+    if (cr.intent === "human") {
+      await GoogleSheetsService.logComplaint({
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        patientName: session.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
+        phoneNumber: session.phoneNumber,
+        complaintContent: userMessage,
+        status: "PENDING"
+      });
+      return HandoffManager.executeHandoff(session, tenant);
     }
-    if (!s.doctorName) {
-      const branchDocs = tenant.doctors.filter(
-        (d) => !s.branchId || d.branchId === s.branchId || d.branchName === s.branchName
+    if (session.status === "COMPLETED_LOCKED") {
+      if (cr.action === "RESET") {
+        session.status = "IN_PROGRESS";
+        session.pendingProposal = false;
+        session.proposedSlot = void 0;
+        session.awaitingFinalConfirm = false;
+        session.lastPrompt = void 0;
+        session.slots = { patientName: session.patientName };
+        return this.runConductor(session, userMessage, tenant, activeBookings, "\u0627\u0644\u0632\u0628\u0648\u0646 \u064A\u0631\u064A\u062F \u062D\u062C\u0632\u0627\u064B \u062C\u062F\u064A\u062F\u0627\u064B \u2014 \u0631\u062D\u0628\u064A \u0628\u0647 \u0648\u0627\u0628\u062F\u0626\u064A \u0631\u0648\u062A\u064A\u0646 \u0627\u0644\u062D\u062C\u0632 \u0645\u0646 \u0623\u0648\u0644 \u0633\u0624\u0627\u0644 (\u0627\u0644\u0641\u0631\u0639).", depth + 1);
+      }
+      return cr.reply;
+    }
+    this.applyProposed(session, cr.proposed, tenant);
+    if (cr.action === "LIST_SERVICES") {
+      const list = this.buildServiceList(session, tenant);
+      if (list.names.length > 0) {
+        session.lastPrompt = { slotType: "service", options: list.names, question: "\u0627\u062E\u062A\u0631 \u0627\u0644\u062E\u062F\u0645\u0629" };
+      }
+      return this.runConductor(session, userMessage, tenant, activeBookings, list.text, depth + 1);
+    }
+    if (cr.action === "GET_SLOTS") {
+      const res = this.resolveSlotsForProposal(session, tenant, activeBookings);
+      if (res.ok) {
+        session.lastPrompt = { slotType: "time", options: [], question: "\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0648\u0642\u062A" };
+        session.proposedSlot = res.slot;
+        session.pendingProposal = true;
+        session.awaitingFinalConfirm = false;
+        s.doctorId = res.slot.doctorId;
+        s.doctorName = res.slot.doctorName || s.doctorName;
+        s.date = res.slot.date;
+        s.startTime = res.slot.startTime;
+      }
+      return this.runConductor(session, userMessage, tenant, activeBookings, res.text, depth + 1);
+    }
+    if (cr.action === "RESET" || cr.action === "COMMIT_BOOKING" || cr.intent === "confirm_booking") {
+      if (cr.action === "RESET") {
+        session.slots = { patientName: session.patientName };
+        session.pendingProposal = false;
+        session.proposedSlot = void 0;
+        session.awaitingFinalConfirm = false;
+        session.lastPrompt = void 0;
+        return this.runConductor(session, userMessage, tenant, activeBookings, "\u062A\u0645 \u062A\u0635\u0641\u064A\u0631 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u2014 \u0627\u0628\u062F\u0626\u064A \u0631\u0648\u062A\u064A\u0646 \u0627\u0644\u062D\u062C\u0632 \u0645\u0646 \u0623\u0648\u0644 \u0633\u0624\u0627\u0644 (\u0627\u0644\u0641\u0631\u0639).", depth + 1);
+      }
+      return await this.commitBooking(session, session.phoneNumber, tenant, activeBookings, depth);
+    }
+    if (cr.intent === "confirm_slot") {
+      if (!s.patientName) {
+        return cr.reply;
+      }
+      session.awaitingFinalConfirm = true;
+      const summary = this.buildBookingSummary(session, tenant);
+      return this.runConductor(session, userMessage, tenant, activeBookings, summary, depth + 1);
+    }
+    if (cr.intent === "decline_slot" || cr.intent === "decline_booking") {
+      session.awaitingFinalConfirm = false;
+      session.pendingProposal = false;
+      session.proposedSlot = void 0;
+      return cr.reply;
+    }
+    return cr.reply;
+  }
+  // ------------------------------------------------------------------
+  // Validation guard: resolve Gemini's proposed values to REAL clinic entities
+  // ------------------------------------------------------------------
+  static applyProposed(session, proposed, tenant) {
+    const s = session.slots || {};
+    session.slots = s;
+    if (!proposed || typeof proposed !== "object") return;
+    if (proposed.branchName) {
+      const b = this.matchBranch(String(proposed.branchName), tenant);
+      if (b) {
+        const changed = s.branchName !== b.name;
+        s.branchName = b.name;
+        s.branchId = b.id;
+        if (changed) {
+          session.pendingProposal = false;
+          session.proposedSlot = void 0;
+          session.awaitingFinalConfirm = false;
+        }
+      }
+    }
+    if (proposed.department) {
+      const d = this.matchDepartment(String(proposed.department), tenant, s);
+      if (d) s.department = d;
+    }
+    if (proposed.serviceName) {
+      const srv = this.matchService(String(proposed.serviceName), tenant, s);
+      if (srv) {
+        const changed = s.serviceName !== srv.name;
+        s.serviceName = srv.name;
+        s.serviceId = srv.id;
+        if (srv.department) s.department = srv.department;
+        if (changed) {
+          s.doctorId = void 0;
+          s.doctorName = void 0;
+          session.pendingProposal = false;
+          session.proposedSlot = void 0;
+          session.awaitingFinalConfirm = false;
+        }
+      }
+    }
+    if (proposed.doctorName && !s.doctorName) {
+      const doc = this.matchDoctor(String(proposed.doctorName), tenant, s);
+      if (doc) {
+        s.doctorId = doc.id;
+        s.doctorName = doc.name;
+      }
+    }
+    if (proposed.date && !s.date) {
+      const day = interpretDayTerm(String(proposed.date));
+      if (day && day.offset >= 1 && day.offset <= 30) {
+        s.date = dateFromOffset(day.offset);
+        session.pendingProposal = false;
+        session.proposedSlot = void 0;
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(String(proposed.date))) {
+        s.date = String(proposed.date);
+        session.pendingProposal = false;
+        session.proposedSlot = void 0;
+      }
+    }
+    if (proposed.time) {
+      const tm = interpretTimeTerm(String(proposed.time));
+      if (tm?.kind === "exact") {
+        s.startTime = `${String(tm.value.hh).padStart(2, "0")}:${String(tm.value.mm).padStart(2, "0")}`;
+        session.preferredTimeRange = void 0;
+        session.pendingProposal = false;
+        session.proposedSlot = void 0;
+      } else if (tm?.kind === "range") {
+        session.preferredTimeRange = tm.value;
+        s.startTime = void 0;
+        session.pendingProposal = false;
+        session.proposedSlot = void 0;
+      }
+    }
+    if (proposed.patientName && !s.patientName) {
+      this.applyPatientName(session, String(proposed.patientName), tenant);
+    }
+  }
+  static matchBranch(raw, tenant) {
+    const norm = normalizeArabicText(raw);
+    let best = null;
+    for (const b of tenant.branches) {
+      const score = Math.max(
+        entityMentionScore(b.name, norm),
+        entityMentionScore(b.name.replace(/^فرع\s*/, ""), norm)
       );
-      const targetDocs = branchDocs.length > 0 ? branchDocs : tenant.doctors;
-      const docsList = targetDocs.map((d, i) => `${i + 1}. \u062F\u0643\u062A\u0648\u0631/\u062F\u0643\u062A\u0648\u0631\u0629 ${d.name} (${d.specialty})`).join("\n");
-      return `\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A\u060C \u0627\u0644\u0623\u0637\u0628\u0627\u0621 \u0627\u0644\u0645\u062A\u0627\u062D\u0648\u0646 \u0641\u064A ${s.branchName || "\u0627\u0644\u0641\u0631\u0639"}:
-
-${docsList}
-
-\u0623\u064A\u0647\u0645 \u062A\u0641\u0636\u0644 \u062A\u062D\u062C\u0632 \u0639\u0646\u062F\u0647\u061F`;
+      if (score > 0 && (!best || score > best.score)) best = { b, score };
     }
-    if (!s.startTime) {
-      const doctor = tenant.doctors.find((d) => d.id === s.doctorId || d.name === s.doctorName) || tenant.doctors[0];
-      const hoursStr = this.formatWorkingHours(doctor.workingHours.startHour, doctor.workingHours.endHour);
-      return `\u0639\u064A\u0646\u064A \u062F\u0643\u062A\u0648\u0631/\u062F\u0643\u062A\u0648\u0631\u0629 ${doctor.name} \u0645\u062A\u0648\u0641\u0631 \u0641\u064A ${doctor.branchName} \u062E\u0644\u0627\u0644 \u0623\u0648\u0642\u0627\u062A \u0627\u0644\u062F\u0648\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 (${hoursStr}). 
-
-\u0634\u0646\u0648 \u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0645\u0646\u0627\u0633\u0628 \u0644\u0643 \u063A\u062F\u0627\u064B \u062D\u062A\u0649 \u0623\u062B\u0628\u062A\u0647 \u0644\u0643\u061F`;
-    }
-    if (!s.patientName) {
-      return `\u062A\u062F\u0644\u0644 \u0639\u064A\u0646\u064A! \u0628\u0642\u0649 \u0628\u0633 \u062A\u0632\u0648\u062F\u0646\u0627 \u0628\u0640 \u0627\u0633\u0645\u0643 \u0627\u0644\u0645\u062D\u062A\u0631\u0645 \u062D\u062A\u0649 \u0646\u062B\u0628\u062A \u0627\u0644\u062D\u062C\u0632 \u0648\u0646\u0635\u062F\u0631 \u0644\u0643 \u0643\u0627\u0631\u062A \u0627\u0644\u0645\u0648\u0639\u062F \u0627\u0644\u0631\u0633\u0645\u064A! \u{1F338}`;
-    }
-    return `\u062A\u0641\u0636\u0644 \u0639\u064A\u0646\u064A\u060C \u0643\u0644\u064A\u0644\u064A \u0634\u0646\u0648 \u0627\u0644\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0644\u064A \u062A\u062D\u0628 \u0646\u0648\u0636\u062D\u0647\u0627 \u0644\u0643\u061F`;
+    return best && best.score >= 0.55 ? best.b : null;
   }
-  /**
-   * Finalize Booking: Create Record, Sync Calendar, Save Sheet CRM, Issue Digital Receipt Card & Lock Session
-   */
-  static async finalizeBooking(session, phone, tenant) {
-    session.bookingCode = `BK-${Math.floor(1e3 + Math.random() * 9e3)}`;
+  static matchDepartment(raw, tenant, s) {
+    const norm = normalizeArabicText(raw);
+    const candidates = Array.from(/* @__PURE__ */ new Set([
+      ...tenant.departments || [],
+      ...this.branchDepartments(tenant, s.branchName, s.branchId)
+    ])).filter((d) => normalizeArabicText(d).length >= 2);
+    let best = null;
+    for (const d of candidates) {
+      const score = entityMentionScore(d, norm);
+      if (score > 0 && (!best || score > best.score)) best = { name: d, score };
+    }
+    return best && best.score >= 0.55 ? best.name : null;
+  }
+  static matchService(raw, tenant, s) {
+    const norm = normalizeArabicText(raw);
+    let candidates = tenant.services;
+    if (s.branchName) {
+      const branchServices = tenant.services.filter((srv) => {
+        const doc = tenant.doctors.find((d) => d.name === srv.doctorName || srv.doctorName && (srv.doctorName.includes(d.name) || d.name.includes(srv.doctorName)));
+        return doc ? doc.branchName === s.branchName || doc.branchId === s.branchId : true;
+      });
+      if (branchServices.length > 0) candidates = branchServices;
+    }
+    if (s.department) {
+      const nd = normalizeArabicText(s.department);
+      const deptServices = candidates.filter((srv) => normalizeArabicText(srv.department || "") === nd);
+      if (deptServices.length > 0) candidates = deptServices;
+    }
+    let best = null;
+    for (const srv of candidates) {
+      const score = entityMentionScore(srv.name, norm);
+      if (score > 0 && (!best || score > best.score)) best = { srv, score };
+    }
+    return best && best.score >= 0.6 ? best.srv : null;
+  }
+  static matchDoctor(raw, tenant, s) {
+    const norm = normalizeArabicText(raw);
+    let best = null;
+    for (const d of tenant.doctors) {
+      const score = Math.max(
+        entityMentionScore(d.name, norm),
+        entityMentionScore(d.name.replace(/^(د\.?|دكتور|دكتورة)\s*/, ""), norm)
+      );
+      if (score > 0 && (!best || score > best.score)) best = { d, score };
+    }
+    if (!best || best.score < 0.55) return null;
+    if (s.branchName) {
+      const inBranch = best.d.branchName === s.branchName || best.d.branchId === s.branchId;
+      if (!inBranch) return null;
+    }
+    return best.d;
+  }
+  /** Patient name — corroborated ONLY: every word evidenced in the user's text, never entity-like */
+  static applyPatientName(session, candidateRaw, tenant) {
     const s = session.slots || {};
+    session.slots = s;
+    if (s.patientName) return;
+    const candidate = candidateRaw.trim();
+    if (JUNK_NAME_RE.test(candidate)) return;
+    const cNorm = normalizeArabicText(toAsciiDigits(candidate));
+    const words = cNorm.split(/\s+/).filter((w) => w.length >= 2);
+    if (words.length === 0 || words.length > 4) return;
+    const allEntityNames = [
+      ...tenant.branches.map((b) => b.name),
+      ...tenant.services.map((sv) => sv.name),
+      ...tenant.doctors.map((d) => d.name),
+      ...tenant.departments || []
+    ];
+    const entityLike = allEntityNames.some((n) => {
+      const nn = normalizeArabicText(toAsciiDigits(n));
+      return nn.length >= 3 && entityMentionScore(n, cNorm) >= 0.55;
+    });
+    if (entityLike) return;
+    const evWords = this.userEvidenceText(session, "").split(/\s+/).filter((w) => w.length >= 2);
+    const allPresent = words.every((w) => evWords.some((ew) => wordFuzzyScore(w, ew) >= 0.85));
+    if (!allPresent) return;
+    s.patientName = candidate;
+    session.patientName = candidate;
+  }
+  /** All user texts in the rolling memory (last ~3 user messages) + optional current text */
+  static userEvidenceText(session, currentText) {
+    const users = (session.recentMessages || []).filter((t) => t.role === "user").map((t) => t.text);
+    return [...users, currentText].join(" ");
+  }
+  // ------------------------------------------------------------------
+  // Dynamic helpers fed to Gemini (data only, no conversation control)
+  // ------------------------------------------------------------------
+  /** Dynamically pick a consultation-type service (generic concept keywords only) or the cheapest */
+  static recommendedService(tenant, s) {
+    const candidates = this.availableServicesFor(tenant, s);
+    if (candidates.length === 0) return null;
+    const concept = candidates.find((sv) => /^(كشف|فحص|استشار|تشخيص|عرض)/.test(normalizeArabicText(sv.name)));
+    if (concept) return concept.name;
+    return [...candidates].sort((a, b) => a.price - b.price)[0].name;
+  }
+  static buildServiceList(session, tenant) {
+    const services = this.availableServicesFor(tenant, session.slots || {});
+    const names = services.map((sv) => sv.name);
+    const lines = services.map((sv, i) => {
+      const doc = tenant.doctors.find((d) => d.name === sv.doctorName);
+      return `${i + 1}. ${sv.name} - ${sv.price > 0 ? sv.price + " \u062F\u064A\u0646\u0627\u0631" : "\u062D\u0633\u0628 \u0627\u0644\u0641\u062D\u0635"} (\u062F. ${sv.doctorName || "\u0627\u0644\u0639\u064A\u0627\u062F\u0629"}${doc ? " - " + doc.branchName : ""})`;
+    });
+    return { text: `\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062E\u062F\u0645\u0627\u062A \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u062D\u0627\u0644\u064A\u0627\u064B (\u0627\u0639\u0631\u0636\u064A\u0647\u0627 \u0648\u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0632\u0628\u0648\u0646 \u0627\u062E\u062A\u064A\u0627\u0631 \u0631\u0642\u0645 \u0623\u0648 \u0627\u0633\u0645):
+${lines.join("\n")}`, names };
+  }
+  static buildBookingSummary(session, tenant) {
+    const s = session.slots || {};
+    const branch = tenant.branches.find((b) => b.id === s.branchId || b.name === s.branchName);
+    const doctor = tenant.doctors.find((d) => d.id === s.doctorId || d.name === s.doctorName);
+    const service = tenant.services.find((sv) => sv.id === s.serviceId || sv.name === s.serviceName);
+    const dateLabel = s.date === getBaghdadTomorrow() ? "\u063A\u062F\u0627\u064B" : s.date;
+    return `\u0645\u0644\u062E\u0635 \u0627\u0644\u062D\u062C\u0632 \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0644\u0644\u0632\u0628\u0648\u0646:
+- \u0627\u0644\u0641\u0631\u0639: ${branch?.name || s.branchName || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F"}
+- \u0627\u0644\u0642\u0633\u0645: ${s.department || "\u0639\u0627\u0645"}
+- \u0627\u0644\u062E\u062F\u0645\u0629: ${service?.name || s.serviceName || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F"}
+- \u0627\u0644\u0637\u0628\u064A\u0628: ${doctor?.name || s.doctorName || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F"}
+- \u0627\u0644\u0645\u0648\u0639\u062F: ${dateLabel || s.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${s.startTime || ""}
+- \u0627\u0644\u0627\u0633\u0645: ${s.patientName || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F"}
+\u0627\u0639\u0631\u0636\u064A \u0647\u0630\u0627 \u0627\u0644\u0645\u0644\u062E\u0635 \u0628\u0648\u0636\u0648\u062D \u0648\u0627\u0633\u0623\u0644\u064A \u0627\u0644\u0632\u0628\u0648\u0646: "\u0646\u062B\u0628\u062A \u0643\u0644\u0634\u064A \u062A\u0645\u0627\u0645\u061F" \u0648\u0644\u0627 \u062A\u0637\u0644\u0628\u064A \u0627\u0644\u062A\u062B\u0628\u064A\u062A \u0642\u0628\u0644 \u062A\u0623\u0643\u064A\u062F\u0647 \u0627\u0644\u0646\u0647\u0627\u0626\u064A.`;
+  }
+  // ------------------------------------------------------------------
+  // Tool: live slot resolution (single or multiple doctors → earliest)
+  // ------------------------------------------------------------------
+  static resolveSlotsForProposal(session, tenant, activeBookings) {
+    const s = session.slots || {};
+    const service = tenant.services.find((sv) => sv.id === s.serviceId || sv.name === s.serviceName);
+    const duration = service?.durationMinutes || 30;
+    let doctors = [];
+    if (s.doctorName) {
+      const d = tenant.doctors.find((doc) => doc.id === s.doctorId || doc.name === s.doctorName);
+      if (d) doctors = [d];
+    }
+    if (doctors.length === 0 && service?.doctorName) {
+      const d = tenant.doctors.find((doc) => doc.name === service.doctorName || doc.name.includes(service.doctorName) || service.doctorName.includes(doc.name));
+      if (d) doctors = [d];
+    }
+    if (doctors.length === 0) {
+      doctors = tenant.doctors.filter(
+        (d) => (!s.branchName || d.branchName === s.branchName || d.branchId === s.branchId) && (!s.department || d.specialty?.includes(s.department) || tenant.services.some((sv) => normalizeArabicText(sv.department || "") === normalizeArabicText(s.department || "") && (sv.doctorName === d.name || !sv.doctorName)))
+      );
+    }
+    doctors = doctors.filter(Boolean);
+    if (doctors.length === 0) {
+      return { ok: false, text: "\u0645\u0627 \u0644\u0642\u064A\u0646\u0627 \u0637\u0628\u064A\u0628 \u0645\u0637\u0627\u0628\u0642 \u0644\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u2014 \u0627\u0637\u0644\u0628\u064A \u0645\u0646 \u0627\u0644\u0632\u0628\u0648\u0646 \u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0637\u0628\u064A\u0628 \u0623\u0648 \u0627\u0644\u062E\u062F\u0645\u0629." };
+    }
+    const fromDate = s.date && s.date >= getBaghdadTomorrow() ? s.date : getBaghdadTomorrow();
+    let best = null;
+    const options = [];
+    for (const doc of doctors) {
+      let slots = this.earliestAvailableSlots(doc, fromDate, activeBookings, duration, 7, 3, session.preferredTimeRange);
+      if (s.startTime) {
+        const exact = slots.find((sl) => sl.startTime === s.startTime);
+        if (exact) {
+          slots = [exact];
+        } else {
+          const anyDay = this.earliestAvailableSlots(doc, fromDate, activeBookings, duration, 14, 1);
+          const near = anyDay.find((sl) => sl.startTime === s.startTime);
+          if (near) slots = [near];
+        }
+      }
+      for (const sl of slots) {
+        const label = `${sl.date === getBaghdadTomorrow() ? "\u063A\u062F\u0627\u064B" : sl.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${sl.startTime} \u0645\u0639 ${doc.name}`;
+        options.push(label);
+        if (!best || sl.date + sl.startTime < best.slot.date + best.slot.startTime) best = { doc, slot: sl };
+      }
+    }
+    if (!best) {
+      return { ok: false, text: "\u062D\u0627\u0644\u064A\u0627\u064B \u0644\u0627 \u062A\u0648\u062C\u062F \u0645\u0648\u0627\u0639\u064A\u062F \u0634\u0627\u063A\u0631\u0629 \u0642\u0631\u064A\u0628\u0629 \u2014 \u0627\u0639\u062A\u0630\u0631\u064A \u0644\u0644\u0632\u0628\u0648\u0646 \u0648\u0627\u0639\u0631\u0636\u064A \u0639\u0644\u064A\u0647 \u0627\u0644\u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631." };
+    }
+    const uniqueOptions = Array.from(new Set(options)).slice(0, 3);
+    return {
+      ok: true,
+      slot: { ...best.slot, doctorId: best.doc.id, doctorName: best.doc.name },
+      text: `\u0623\u0642\u0631\u0628 \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u062D\u0627\u0644\u064A\u0627\u064B (\u062D\u0642\u064A\u0642\u064A\u0629 \u0648\u0628\u062F\u0648\u0646 \u062A\u0639\u0627\u0631\u0636):
+${uniqueOptions.join("\n")}
+\u0627\u0639\u0631\u0636\u064A \u0627\u0644\u0623\u0642\u0631\u0628 \u0639\u0644\u0649 \u0627\u0644\u0632\u0628\u0648\u0646 \u0648\u0627\u0633\u0623\u0644\u064A\u0647 \u0625\u0630\u0627 \u064A\u0646\u0627\u0633\u0628\u0647 (\u0645\u0648\u0627\u0641\u0642\u061F).`
+    };
+  }
+  static branchDepartments(tenant, branchName, branchId) {
+    const branchDoctors = tenant.doctors.filter((d) => d.branchId === branchId || d.branchName === branchName);
+    const branchServices = tenant.services.filter(
+      (s) => branchDoctors.some((d) => d.name === s.doctorName || !s.doctorName)
+    );
+    const depts = Array.from(new Set(branchServices.map((s) => s.department).filter(Boolean)));
+    return depts.length > 0 ? depts : tenant.departments || [];
+  }
+  static availableServicesFor(tenant, s) {
+    const normDept = (d) => normalizeArabicText(d || "");
+    let services = tenant.services;
+    if (s.branchName || s.branchId) {
+      const branchDocs = tenant.doctors.filter((d) => d.branchId === s.branchId || d.branchName === s.branchName);
+      const branchServices = tenant.services.filter(
+        (srv) => branchDocs.some((d) => d.name === srv.doctorName || !srv.doctorName)
+      );
+      if (branchServices.length > 0) services = branchServices;
+    }
+    if (s.department) {
+      const deptServices = services.filter((srv) => normDept(srv.department) === normDept(s.department));
+      if (deptServices.length > 0) services = deptServices;
+    }
+    return services;
+  }
+  // ------------------------------------------------------------------
+  // Commit path with hard guards + fresh re-check + warm receipt
+  // ------------------------------------------------------------------
+  static async commitBooking(session, phone, tenant, activeBookings, depth) {
+    const s = session.slots || {};
+    const missing = [];
+    if (!s.branchName) missing.push("\u0627\u0644\u0641\u0631\u0639");
+    if (!s.serviceName) missing.push("\u0627\u0644\u062E\u062F\u0645\u0629");
+    if (!s.doctorName) missing.push("\u0627\u0644\u0637\u0628\u064A\u0628");
+    if (!s.patientName) missing.push("\u0627\u0644\u0627\u0633\u0645");
+    if (!s.startTime && !session.proposedSlot) missing.push("\u0627\u0644\u0648\u0642\u062A");
+    if (missing.length > 0) {
+      const note = `\u0644\u0627 \u064A\u0645\u0643\u0646 \u0627\u0644\u062A\u062B\u0628\u064A\u062A \u0628\u0639\u062F \u2014 \u0646\u0627\u0642\u0635 \u0645\u0646 \u0627\u0644\u0632\u0628\u0648\u0646: ${missing.join("\u060C ")}. \u0627\u0637\u0644\u0628\u064A \u0647\u0630\u0647 \u0627\u0644\u0645\u0639\u0644\u0648\u0645\u0627\u062A \u0628\u0647\u062F\u0648\u0621 \u0642\u0628\u0644 \u0627\u0644\u062A\u062B\u0628\u064A\u062A.`;
+      return this.runConductor(session, "", tenant, activeBookings, note, depth + 1);
+    }
+    const res = await this.finalizeBooking(session, phone, tenant);
+    if (res.ok && res.booking) {
+      session.awaitingFinalConfirm = false;
+      return await this.receiptViaGemini(session, tenant, res.booking, res.receiptText || "");
+    }
+    if (res.message && CONFLICT_RE.test(res.message)) {
+      const fresh = await GoogleSheetsService.fetchActiveBookings(getBaghdadToday());
+      s.startTime = void 0;
+      const alt = this.resolveSlotsForProposal(session, tenant, fresh);
+      if (alt.ok && alt.slot) {
+        session.proposedSlot = alt.slot;
+        session.pendingProposal = true;
+        session.awaitingFinalConfirm = false;
+        s.doctorId = alt.slot.doctorId;
+        s.doctorName = alt.slot.doctorName || s.doctorName;
+        s.date = alt.slot.date;
+        s.startTime = alt.slot.startTime;
+      }
+      const note = `\u0627\u0644\u0645\u0648\u0639\u062F \u0627\u0644\u0630\u064A \u0623\u0631\u062F\u062A\u0650 \u062A\u062B\u0628\u064A\u062A\u0647 \u0627\u0646\u062D\u062C\u0632 \u0642\u0628\u0644 \u0634\u0648\u064A \u0645\u0646 \u0645\u0631\u0627\u062C\u0639 \u0622\u062E\u0631.
+${alt.ok ? "\u0627\u0644\u0628\u062F\u0627\u0626\u0644 \u0627\u0644\u0645\u062A\u0627\u062D\u0629 \u062D\u0627\u0644\u064A\u0627\u064B:\n" + alt.text : alt.text}
+\u0627\u0639\u062A\u0630\u0631\u064A \u0644\u0644\u0632\u0628\u0648\u0646 \u0628\u0635\u062F\u0642 \u0648\u0627\u0639\u0631\u0636\u064A \u0639\u0644\u064A\u0647 \u0647\u0630\u0647 \u0627\u0644\u0628\u062F\u0627\u0626\u0644 (\u0623\u0648 \u0627\u0644\u0623\u0642\u0631\u0628 \u0625\u0630\u0627 \u0637\u0644\u0628 "\u062B\u0628\u062A \u0627\u0644\u0623\u0642\u0631\u0628").`;
+      return await this.runConductor(session, "", tenant, fresh, note, depth + 1);
+    }
+    return res.message || `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u0635\u0627\u0631 \u062E\u0644\u0644 \u062A\u0642\u0646\u064A \u0645\u0624\u0642\u062A \u0623\u062B\u0646\u0627\u0621 \u062A\u062B\u0628\u064A\u062A \u0627\u0644\u062D\u062C\u0632. \u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0633\u0643\u0631\u062A\u0627\u0631\u064A\u0629: ${tenant.secretaryPhone}`;
+  }
+  static async receiptViaGemini(session, tenant, booking, fallbackReceipt) {
+    try {
+      const receiptData = `\u062A\u0645 \u062A\u062B\u0628\u064A\u062A \u0627\u0644\u062D\u062C\u0632 \u0631\u0633\u0645\u064A\u0627\u064B \u0641\u064A \u0627\u0644\u0646\u0638\u0627\u0645 \u0642\u0628\u0644 \u0647\u0630\u0627 \u0627\u0644\u0631\u062F.
+- \u0643\u0648\u062F \u0627\u0644\u062D\u062C\u0632: ${booking.bookingCode}
+- \u0627\u0644\u0627\u0633\u0645: ${booking.patientName}
+- \u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641: ${booking.patientPhone}
+- \u0627\u0644\u0641\u0631\u0639: ${booking.branchName}
+- \u0627\u0644\u0642\u0633\u0645: ${booking.department || "\u0639\u0627\u0645"}
+- \u0627\u0644\u062E\u062F\u0645\u0629: ${booking.serviceName}
+- \u0627\u0644\u0637\u0628\u064A\u0628: ${booking.doctorName}
+- \u0627\u0644\u0645\u0648\u0639\u062F: ${booking.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${booking.startTime}
+- \u0627\u0644\u0645\u0648\u0642\u0639: ${tenant.branches.find((b) => b.name === booking.branchName)?.locationLink || "\u062F\u0627\u062E\u0644 \u0627\u0644\u0639\u064A\u0627\u062F\u0629"}
+\u062A\u0639\u0644\u064A\u0645\u0627\u062A \u0645\u0627 \u0642\u0628\u0644 \u0627\u0644\u062D\u0636\u0648\u0631: ${tenant.services.find((sv) => sv.name === booking.serviceName)?.preAppointmentInstructions || "\u064A\u0631\u062C\u0649 \u0627\u0644\u062D\u0636\u0648\u0631 \u0642\u0628\u0644 \u0627\u0644\u0645\u0648\u0639\u062F \u0628\u0640 15 \u062F\u0642\u064A\u0642\u0629 \u0645\u0635\u062D\u0648\u0628\u0627\u064B \u0628\u0627\u0644\u0647\u0648\u064A\u0629 \u0627\u0644\u0634\u062E\u0635\u064A\u0629."}`;
+      const cr = await GeminiService.conductTurn({
+        userMessage: "",
+        tenant,
+        slots: session.slots || {},
+        patientName: booking.patientName,
+        isReturning: !!session.isReturningPatient,
+        recentMessages: session.recentMessages || [],
+        pendingProposal: false,
+        proposedSlot: null,
+        awaitingFinalConfirm: false,
+        toolResult: receiptData,
+        bookingCommitted: true
+      });
+      return cr.reply && cr.reply.length > 10 ? cr.reply : fallbackReceipt;
+    } catch {
+      return fallbackReceipt;
+    }
+  }
+  // ------------------------------------------------------------------
+  // Cancel / modify protocol (extracted, used by regex fast-path + Gemini intent)
+  // ------------------------------------------------------------------
+  static async handleCancelModify(session, phone, tenant, text, isCancelReq, isModifyReq) {
+    const activeBooking = await GoogleSheetsService.findActiveBookingByPhone(phone);
+    if (!activeBooking) {
+      return `\u0639\u064A\u0646\u064A \u0645\u0627 \u0644\u0642\u064A\u0646\u0627 \u062D\u062C\u0632 \u0646\u0634\u0637 \u0645\u0633\u062C\u0644 \u0628\u0647\u0627\u062F \u0627\u0644\u0631\u0642\u0645. \u0625\u0630\u0627 \u062A\u062D\u0628 \u062A\u062B\u0628\u062A \u062D\u062C\u0632 \u062C\u062F\u064A\u062F\u060C \u0643\u0644\u064A\u0644\u064A \u0634\u0646\u0648 \u0627\u0644\u0642\u0633\u0645 \u0623\u0648 \u0627\u0644\u062E\u062F\u0645\u0629 \u0627\u0644\u0645\u062D\u062A\u0627\u062C\u0647\u0627 \u0648\u062A\u062F\u0644\u0644!`;
+    }
+    const cancelResult = await GoogleSheetsService.cancelBookingInSheet(activeBooking.bookingCode);
+    if (cancelResult) {
+      if (cancelResult.calendarEventId && cancelResult.calendarId) {
+        await GoogleCalendarService.cancelAppointment(cancelResult.calendarId, cancelResult.calendarEventId);
+      }
+      await GoogleSheetsService.logAnalytics("BOOKING_CANCELLED", `Cancelled by patient: ${activeBooking.bookingCode}`);
+    }
+    if (session.selectedSlot) SlotGenerator.unlockSlot(session.selectedSlot);
+    session.proposedSlot = void 0;
+    session.pendingProposal = false;
+    session.awaitingFinalConfirm = false;
+    if (isCancelReq) {
+      if (cancelResult) {
+        this.sessions.delete(phone);
+        return `\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u062D\u062C\u0632\u0643 \u0627\u0644\u0633\u0627\u0628\u0642 (${activeBooking.bookingCode}) \u0628\u0646\u062C\u0627\u062D \u0639\u064A\u0646\u064A. \u0625\u0630\u0627 \u062D\u0628\u064A\u062A \u062A\u062D\u062C\u0632 \u0645\u0648\u0639\u062F \u062C\u062F\u064A\u062F \u0628\u0623\u064A \u0648\u0642\u062A\u060C \u0625\u062D\u0646\u0627 \u0628\u0627\u0646\u062A\u0638\u0627\u0631\u0643 \u0628\u0631\u062D\u0627\u0628\u0629 \u0635\u062F\u0631! \u{1F338}`;
+      }
+      return `\u0639\u064A\u0646\u064A \u062D\u0627\u0648\u0644\u0646\u0627 \u0646\u0644\u063A\u064A \u0627\u0644\u062D\u062C\u0632 \u0644\u0643\u0648\u062F ${activeBooking.bookingCode} \u0648\u0628\u0633 \u0635\u0627\u0631 \u062E\u0644\u0644 \u0628\u0627\u0644\u0634\u0628\u0643\u0629\u060C \u0631\u0627\u062D \u0646\u062D\u0648\u0644\u0643 \u0644\u0640 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631 \u0644\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0645\u0628\u0627\u0634\u0631.`;
+    } else {
+      if (cancelResult) {
+        session.status = "IN_PROGRESS";
+        session.slots = { patientName: session.patientName };
+        session.selectedSlot = void 0;
+        session.lastPrompt = void 0;
+        return `\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u062D\u062C\u0632\u0643 \u0627\u0644\u0633\u0627\u0628\u0642 (${activeBooking.bookingCode}) \u0644\u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0645\u0648\u0639\u062F. \u062A\u0641\u0636\u0644 \u0623\u062E\u0628\u0631\u0646\u064A \u0634\u0646\u0648 \u0627\u0644\u062E\u062F\u0645\u0629 \u0623\u0648 \u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0645\u0646\u0627\u0633\u0628 \u0625\u0644\u0643 \u0644\u062A\u062B\u0628\u064A\u062A \u0645\u0648\u0639\u062F\u0643 \u0627\u0644\u062C\u062F\u064A\u062F! \u2728`;
+      }
+      return `\u0639\u064A\u0646\u064A \u062D\u0627\u0648\u0644\u0646\u0627 \u0646\u0644\u063A\u064A \u0627\u0644\u062D\u062C\u0632 \u0644\u0643\u0648\u062F ${activeBooking.bookingCode} \u0648\u0628\u0633 \u0635\u0627\u0631 \u062E\u0644\u0644 \u0628\u0627\u0644\u0634\u0628\u0643\u0629\u060C \u0631\u0627\u062D \u0646\u062D\u0648\u0644\u0643 \u0644\u0640 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631 \u0644\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0645\u0628\u0627\u0634\u0631.`;
+    }
+  }
+  // ------------------------------------------------------------------
+  // Finalize: fresh re-check → atomic lock → calendar-first → sheet+CRM → receipt
+  // ------------------------------------------------------------------
+  static async generateUniqueBookingCode(activeBookings) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = `BK-${Math.floor(1e4 + Math.random() * 9e4)}`;
+      if (!activeBookings.some((b) => b.bookingCode === code)) return code;
+    }
+    return `BK-${Date.now().toString().slice(-5)}`;
+  }
+  static async finalizeBooking(session, phone, tenant) {
+    const s = session.slots || {};
+    if (!s.patientName || ["undefined", "null", ""].includes(String(s.patientName))) {
+      return { ok: false, message: `\u062A\u062F\u0644\u0644 \u0639\u064A\u0646\u064A! \u0628\u0642\u0649 \u0628\u0633 \u062A\u0632\u0648\u062F\u0646\u0627 \u0628\u0640 \u0627\u0633\u0645\u0643 \u0627\u0644\u0645\u062D\u062A\u0631\u0645 \u062D\u062A\u0649 \u0646\u062B\u0628\u062A \u0627\u0644\u062D\u062C\u0632 \u0648\u0646\u0635\u062F\u0631 \u0644\u0643 \u0643\u0627\u0631\u062A \u0627\u0644\u0645\u0648\u0639\u062F \u0627\u0644\u0631\u0633\u0645\u064A! \u{1F338}` };
+    }
     const branch = tenant.branches.find((b) => b.id === s.branchId || b.name === s.branchName) || tenant.branches[0];
-    const doctor = tenant.doctors.find((d) => d.id === s.doctorId || d.name === s.doctorName) || tenant.doctors[0];
+    const doctor = tenant.doctors.find((d) => d.id === s.doctorId || d.name === s.doctorName) || (tenant.branches[0] ? tenant.doctors[0] : void 0);
     const service = tenant.services.find((srv) => srv.id === s.serviceId || srv.name === s.serviceName) || tenant.services[0];
-    const defaultStartH = doctor.workingHours?.startHour || 9;
-    const defaultStartTime = s.startTime || `${defaultStartH.toString().padStart(2, "0")}:00`;
+    if (!doctor) {
+      return { ok: false, message: `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631 \u0644\u062A\u062B\u0628\u064A\u062A \u0645\u0648\u0639\u062F\u0643: ${tenant.secretaryPhone}` };
+    }
+    const freshBookings = await GoogleSheetsService.fetchActiveBookings(getBaghdadToday());
+    let slot = session.proposedSlot || session.selectedSlot;
+    const bookingDate = s.date || slot?.date || getBaghdadTomorrow();
+    if (!slot) {
+      const slots = SlotGenerator.generateAvailableSlots(doctor, bookingDate, freshBookings, service?.durationMinutes || 30);
+      slot = slots.find((sl) => sl.startTime === s.startTime) || slots[0];
+    }
+    if (!slot) {
+      return { ok: false, message: `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u0647\u0627\u0644\u0645\u0648\u0639\u062F \u0627\u0646\u062D\u062C\u0632 \u0642\u0628\u0644 \u0642\u0644\u064A\u0644. \u0623\u0642\u0631\u0628 \u0645\u0648\u0639\u062F \u0645\u062A\u0627\u062D \u0625\u0644\u0643: ${this.slotListText(doctor, getBaghdadTomorrow(), freshBookings, service?.durationMinutes || 30)}` };
+    }
+    const startTime = s.startTime || slot.startTime;
+    if (!SlotGenerator.lockSlotTemporarily(slot, void 0, phone)) {
+      const next = this.earliestAvailableSlot(doctor, bookingDate, freshBookings, service?.durationMinutes || 30);
+      if (next) {
+        session.proposedSlot = next;
+        session.pendingProposal = true;
+        return { ok: false, message: `\u0639\u064A\u0646\u064A \u0647\u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0644\u064A \u0637\u0644\u0628\u062A\u0647 \u0627\u0646\u062D\u062C\u0632 \u0642\u0628\u0644 \u0634\u0648\u064A \u{1F605}. \u0623\u0642\u0631\u0628 \u0645\u0648\u0639\u062F \u0645\u062A\u0627\u062D \u0625\u0644\u0643: ${next.date === getBaghdadTomorrow() ? "\u063A\u062F\u0627\u064B" : next.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${next.startTime}. \u062A\u0631\u064A\u062F \u0623\u062D\u062C\u0632\u0647 \u0625\u0644\u0643\u061F` };
+      }
+      return { ok: false, message: `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0645\u062A\u0644\u0623\u062A \u0641\u062C\u0623\u0629. \u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631 \u0644\u062A\u062B\u0628\u064A\u062A \u0645\u0648\u0639\u062F \u0628\u062F\u064A\u0644: ${tenant.secretaryPhone}` };
+    }
+    const stillFree = SlotGenerator.generateAvailableSlots(doctor, bookingDate, freshBookings, service?.durationMinutes || 30, slot.slotId).some((sl) => sl.startTime === startTime);
+    if (!stillFree) {
+      const next = this.earliestAvailableSlot(doctor, bookingDate, freshBookings, service?.durationMinutes || 30);
+      if (next) {
+        session.proposedSlot = next;
+        session.pendingProposal = true;
+        return { ok: false, message: `\u0639\u064A\u0646\u064A \u0647\u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0644\u064A \u0637\u0644\u0628\u062A\u0647 \u0627\u0646\u062D\u062C\u0632 \u0642\u0628\u0644 \u0634\u0648\u064A \u{1F605}. \u0623\u0642\u0631\u0628 \u0645\u0648\u0639\u062F \u0645\u062A\u0627\u062D \u0625\u0644\u0643: ${next.date === getBaghdadTomorrow() ? "\u063A\u062F\u0627\u064B" : next.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${next.startTime}. \u062A\u0631\u064A\u062F \u0623\u062D\u062C\u0632\u0647 \u0625\u0644\u0643\u061F` };
+      }
+      return { ok: false, message: `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u0627\u0644\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0645\u062A\u0644\u0623\u062A \u0641\u062C\u0623\u0629. \u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0633\u0643\u0631\u062A\u064A\u0631 \u0644\u062A\u062B\u0628\u064A\u062A \u0645\u0648\u0639\u062F \u0628\u062F\u064A\u0644: ${tenant.secretaryPhone}` };
+    }
+    session.bookingCode = await this.generateUniqueBookingCode(freshBookings);
     const effectiveDuration = Math.ceil((service.durationMinutes || 30) * 1.2);
-    const [startH, startMin] = defaultStartTime.split(":").map(Number);
+    const [startH, startMin] = startTime.split(":").map(Number);
     const totalEndMin = startH * 60 + (startMin || 0) + effectiveDuration;
     const computedEndH = Math.floor(totalEndMin / 60).toString().padStart(2, "0");
     const computedEndM = (totalEndMin % 60).toString().padStart(2, "0");
     const computedEndTime = `${computedEndH}:${computedEndM}`;
-    const bookingDate = s.date || SlotGenerator.getTomorrowDate();
     const booking = {
       bookingCode: session.bookingCode,
       tenantId: tenant.tenantId,
       patientPhone: phone,
-      patientName: s.patientName || session.patientName || "\u0645\u0631\u0627\u062C\u0639 \u0643\u0631\u064A\u0645",
+      patientName: s.patientName,
       patientTag: session.isReturningPatient ? "RETURNING" : "NEW",
-      branchId: branch.id,
-      branchName: branch.name,
+      branchId: branch?.id || "b_1",
+      branchName: branch?.name || "\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0631\u0626\u064A\u0633\u064A",
       doctorId: doctor.id,
       doctorName: doctor.name,
-      serviceId: service.id,
-      serviceName: service.name,
+      serviceId: service?.id || "s_1",
+      serviceName: service?.name || "\u0643\u0634\u0641\u064A\u0629 \u0639\u0627\u0645\u0629",
       department: s.department || "\u0639\u0627\u0645",
       date: bookingDate,
-      startTime: defaultStartTime,
+      startTime,
       endTime: computedEndTime,
       durationMinutes: effectiveDuration,
       status: "CONFIRMED",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      calendarId: doctor.calendarId || "primary"
     };
-    await GoogleCalendarService.syncAppointment(booking, doctor);
-    await GoogleSheetsService.saveBooking(booking);
+    let calendarEventId = null;
+    try {
+      calendarEventId = await GoogleCalendarService.syncAppointment(booking, doctor);
+      booking.calendarEventId = calendarEventId || void 0;
+      if (!calendarEventId) {
+        await GoogleSheetsService.logSystemError(`Calendar event NOT created for booking ${booking.bookingCode} (${booking.patientName} @ ${bookingDate} ${startTime})`, phone, booking.patientName);
+      }
+    } catch (calErr) {
+      await GoogleSheetsService.logSystemError(`Calendar sync error for ${booking.bookingCode}: ${calErr?.message || String(calErr)}`, phone, booking.patientName);
+    }
+    const saved = await GoogleSheetsService.saveBooking(booking);
+    if (!saved) {
+      if (calendarEventId && doctor?.calendarId) {
+        await GoogleCalendarService.cancelAppointment(doctor.calendarId, calendarEventId);
+      }
+      return { ok: false, message: `\u0639\u0630\u0631\u0627\u064B \u0639\u064A\u0646\u064A\u060C \u0635\u0627\u0631 \u062E\u0644\u0644 \u062A\u0642\u0646\u064A \u0645\u0624\u0642\u062A \u0623\u062B\u0646\u0627\u0621 \u062A\u062B\u0628\u064A\u062A \u0627\u0644\u062D\u062C\u0632. \u062A\u0642\u062F\u0631 \u062A\u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0633\u0643\u0631\u062A\u0627\u0631\u064A\u0629 \u0644\u0644\u062A\u062B\u0628\u064A\u062A \u0627\u0644\u0645\u0628\u0627\u0634\u0631: ${tenant.secretaryPhone}` };
+    }
     await GoogleSheetsService.savePatientCRM({
       phoneNumber: phone,
       patientName: booking.patientName,
@@ -1405,25 +2551,69 @@ ${docsList}
       totalBookings: 1,
       lastVisitDate: booking.date
     });
-    await GoogleSheetsService.logAnalytics("BOOKING_CONFIRMED", `Booking: ${booking.bookingCode}, Patient: ${booking.patientName}, Doctor: ${booking.doctorName}`);
+    await GoogleSheetsService.logAnalytics("BOOKING_CONFIRMED", `Booking: ${booking.bookingCode}, Patient: ${booking.patientName}, Doctor: ${booking.doctorName}, Date: ${bookingDate} ${startTime}`);
+    SlotGenerator.unlockSlot(slot);
     session.status = "COMPLETED_LOCKED";
-    return `\u062A\u0645 \u062A\u062B\u0628\u064A\u062A \u062D\u062C\u0632\u0643 \u0628\u0646\u062C\u0627\u062D \u0648\u0628\u0634\u0643\u0644 \u0646\u0647\u0627\u0626\u064A \u0639\u064A\u0646\u064A! \u2705
+    session.pendingProposal = false;
+    session.proposedSlot = void 0;
+    session.awaitingFinalConfirm = false;
+    session.lastPrompt = void 0;
+    const dateLabel = bookingDate === getBaghdadTomorrow() ? "\u063A\u062F\u0627\u064B" : bookingDate;
+    const receiptText = `\u062A\u0645 \u062A\u062B\u0628\u064A\u062A \u062D\u062C\u0632\u0643 \u0628\u0646\u062C\u0627\u062D \u0648\u0628\u0634\u0643\u0644 \u0646\u0647\u0627\u0626\u064A \u0639\u064A\u0646\u064A! \u2705
 
-\u{1F4CB} \u062A\u0641\u0627\u0635\u064A\u0644 \u0645\u0648\u0639\u062F\u0643:
+\u{1F4CB} \u062A\u0641\u0627\u0635\u064A\u0644 \u0645\u0648\u0639\u062F\u0643 \u0627\u0644\u0631\u0633\u0645\u064A\u0629:
+- \u0643\u0648\u062F \u0627\u0644\u062D\u062C\u0632: ${booking.bookingCode}
 - \u0627\u0644\u0627\u0633\u0645: ${booking.patientName}
 - \u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641: ${phone}
-- \u0627\u0644\u0641\u0631\u0639: ${branch.name}
-- \u0627\u0644\u0637\u0628\u064A\u0628: ${doctor.name}
-- \u0627\u0644\u062E\u062F\u0645\u0629: ${service.name}
-- \u0627\u0644\u0645\u0648\u0639\u062F: \u063A\u062F\u0627\u064B ${booking.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${defaultStartTime}
-- \u0643\u0648\u062F \u0627\u0644\u062D\u062C\u0632: ${booking.bookingCode}
+- \u0627\u0644\u0641\u0631\u0639: ${booking.branchName}
+- \u0627\u0644\u0637\u0628\u064A\u0628: ${booking.doctorName}
+- \u0627\u0644\u062E\u062F\u0645\u0629: ${booking.serviceName}
+- \u0627\u0644\u0645\u0648\u0639\u062F: ${dateLabel} ${bookingDate} \u0627\u0644\u0633\u0627\u0639\u0629 ${startTime}
 
-\u{1F4CD} \u0631\u0627\u0628\u0637 \u062E\u0631\u064A\u0637\u0629 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u062C\u063A\u0631\u0627\u0641\u064A:
-${branch.locationLink || "\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0631\u0626\u064A\u0633\u064A"}
+\u{1F4CD} \u0645\u0648\u0642\u0639 \u0627\u0644\u0639\u064A\u0627\u062F\u0629 \u0627\u0644\u062C\u063A\u0631\u0627\u0641\u064A:
+${branch?.locationLink || "\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0631\u0626\u064A\u0633\u064A"}
 
-\u26A0\uFE0F \u062A\u0639\u0644\u064A\u0645\u0627\u062A \u0647\u0627\u0645\u0629 \u0642\u0628\u0644 \u0627\u0644\u062D\u0636\u0648\u0631: ${service.preAppointmentInstructions || "\u064A\u0631\u062C\u0649 \u0627\u0644\u062D\u0636\u0648\u0631 \u0642\u0628\u0644 \u0627\u0644\u0645\u0648\u0639\u062F \u0628\u0640 15 \u062F\u0642\u064A\u0642\u0629 \u0645\u0635\u062D\u0648\u0628\u0627\u064B \u0628\u0627\u0644\u0647\u0648\u064A\u0629 \u0627\u0644\u0634\u062E\u0635\u064A\u0629."}
+\u26A0\uFE0F \u062A\u0639\u0644\u064A\u0645\u0627\u062A \u0648\u0642\u0627\u0626\u064A\u0629 \u0642\u0628\u0644 \u0627\u0644\u062D\u0636\u0648\u0631:
+${service?.preAppointmentInstructions || "\u064A\u0631\u062C\u0649 \u0627\u0644\u062D\u0636\u0648\u0631 \u0642\u0628\u0644 \u0627\u0644\u0645\u0648\u0639\u062F \u0628\u0640 15 \u062F\u0642\u064A\u0642\u0629 \u0645\u0635\u062D\u0648\u0628\u0627\u064B \u0628\u0627\u0644\u0647\u0648\u064A\u0629 \u0627\u0644\u0634\u062E\u0635\u064A\u0629."}
 
-\u0646\u0646\u062A\u0638\u0631\u0643 \u062A\u0646\u0648\u0631\u0646\u0627 \u0628\u0640 \u0627\u0644\u0639\u064A\u0627\u062F\u0629! \u{1F338}`;
+\u062A\u0645 \u062A\u0633\u062C\u064A\u0644 \u0645\u0648\u0639\u062F\u0643 \u0628\u0627\u0644\u0634\u064A\u062A \u0648\u0627\u0644\u062A\u0642\u0648\u064A\u0645 \u0627\u0644\u0631\u0633\u0645\u064A \u0648\u0646\u0631\u0633\u0644 \u0644\u0643 \u062A\u0630\u0643\u064A\u0631 \u0642\u0628\u0644 \u0627\u0644\u0645\u0648\u0639\u062F. \u0646\u0646\u062A\u0638\u0631\u0643 \u062A\u0646\u0648\u0631\u0646\u0627 \u0628\u0640 \u0627\u0644\u0639\u064A\u0627\u062F\u0629! \u{1F338}`;
+    return { ok: true, booking, receiptText };
+  }
+  static availableSlotsOn(doctor, date, activeBookings, duration) {
+    return SlotGenerator.generateAvailableSlots(doctor, date, activeBookings, duration);
+  }
+  static slotListText(doctor, fromDate, activeBookings, duration, scanDays = 3) {
+    const slots = this.earliestAvailableSlots(doctor, fromDate, activeBookings, duration, scanDays);
+    if (slots.length === 0) return "\u0644\u0627 \u062A\u0648\u062C\u062F \u0645\u0648\u0627\u0639\u064A\u062F \u0634\u0627\u063A\u0631\u0629 \u0642\u0631\u064A\u0628\u0627\u064B";
+    return slots.map((sl) => `${sl.date === getBaghdadTomorrow() ? "\u063A\u062F\u0627\u064B" : sl.date} \u0627\u0644\u0633\u0627\u0639\u0629 ${sl.startTime}`).join(" \u060C ");
+  }
+  static earliestAvailableSlots(doctor, fromDate, activeBookings, duration, scanDays = 7, limit = 3, preferredRange) {
+    const result = [];
+    const today = getBaghdadToday();
+    let cursor = fromDate < today ? today : fromDate;
+    let guard = 0;
+    while (result.length < limit && guard < scanDays) {
+      const slots = this.availableSlotsOn(doctor, cursor, activeBookings, duration);
+      for (const sl of slots) {
+        result.push(sl);
+        if (result.length >= limit) break;
+      }
+      cursor = formatDate(addDays(new Date(cursor), 1));
+      guard++;
+    }
+    if (preferredRange) {
+      const inRange = result.filter((sl) => {
+        const [h, m] = sl.startTime.split(":").map(Number);
+        const minute = h * 60 + (m || 0);
+        return minute >= preferredRange.startMinute && minute + Math.ceil(duration * 1.2) <= preferredRange.endMinute;
+      });
+      const outRange = result.filter((sl) => !inRange.includes(sl));
+      return [...inRange, ...outRange];
+    }
+    return result;
+  }
+  static earliestAvailableSlot(doctor, fromDate, activeBookings, duration, preferredRange, excludeSlotId) {
+    return this.earliestAvailableSlots(doctor, fromDate, activeBookings, duration, 7, 3, preferredRange).find((sl) => !excludeSlotId || sl.slotId !== excludeSlotId);
   }
 };
 
@@ -1459,17 +2649,25 @@ router.post("/webhook", (req, res) => {
       const changes = entry?.changes?.[0];
       const value = changes?.value;
       const message = value?.messages?.[0];
-      if (message && message.type === "text") {
+      if (message) {
         const messageId = message.id;
         const fromPhone = message.from;
-        const rawText = message.text.body || "";
-        const messageText = rawText.length > 1e3 ? rawText.substring(0, 1e3) : rawText;
         if (processedMessageIds.has(messageId)) {
           console.log(`[Webhook Deduplication] Ignored duplicate message ID: ${messageId}`);
           return;
         }
         processedMessageIds.add(messageId);
-        enqueueMessageForProcessing(fromPhone, messageText);
+        if (message.type === "text") {
+          const rawText = message.text?.body || "";
+          const messageText = rawText.length > 1e3 ? rawText.substring(0, 1e3) : rawText;
+          enqueueMessageForProcessing(fromPhone, messageText);
+        } else if (message.type === "audio" && message.audio?.id) {
+          fetchWhatsAppAudioBase64(message.audio.id).then((base64) => {
+            if (base64) {
+              enqueueMessageForProcessing(fromPhone, `AUDIO_BASE64:${base64}`);
+            }
+          });
+        }
       }
       return;
     }
@@ -1581,6 +2779,28 @@ async function sendWhatsAppCloudMessage(toPhone, text) {
     return false;
   }
 }
+async function fetchWhatsAppAudioBase64(mediaId) {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!token || !mediaId) return null;
+  try {
+    const mediaRes = await fetch(`https://graph.facebook.com/v18.0/${mediaId}`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!mediaRes.ok) return null;
+    const mediaData = await mediaRes.json();
+    const mediaUrl = mediaData.url;
+    if (!mediaUrl) return null;
+    const audioRes = await fetch(mediaUrl, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!audioRes.ok) return null;
+    const arrayBuffer = await audioRes.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString("base64");
+  } catch (err) {
+    console.error("[WhatsApp Audio Fetch Exception]:", err);
+    return null;
+  }
+}
 var whatsapp_default = router;
 
 // src/services/watchdog.ts
@@ -1615,20 +2835,26 @@ var WatchdogService = class {
 // src/services/reminder-job.ts
 var ReminderJob = class {
   static isRunning = false;
+  static callbackSendWhatsApp = null;
+  static registerSendCallback(cb) {
+    this.callbackSendWhatsApp = cb;
+  }
   /**
-   * Main execution check for sending 4-hour pre-appointment reminders
+   * Main execution check for sending 4-hour pre-appointment reminders.
+   * IMPORTANT: The reminder message is actually dispatched via the registered WhatsApp callback
+   * BEFORE the row is marked SENT, so a failed send can be retried on the next scan.
    */
   static async checkAndSendReminders() {
     if (this.isRunning) return;
     this.isRunning = true;
     try {
       const tenant = await GoogleSheetsService.getTenantConfig();
-      const rows = await GoogleSheetsService.fetchSheetValues("Bookings!A1:Z500");
+      const rows = await GoogleSheetsService.fetchSheetValues("Bookings!A1:O500");
       if (!rows || rows.length < 2) {
         this.isRunning = false;
         return;
       }
-      const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      const todayStr = getBaghdadToday();
       const now = /* @__PURE__ */ new Date();
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i];
@@ -1652,7 +2878,20 @@ var ReminderJob = class {
 \u0646\u0646\u062A\u0638\u0631\u0643 \u062A\u0646\u0648\u0631\u0646\u0627 \u0628\u0627\u0644\u0639\u064A\u0627\u062F\u0629!
 \u0627\u0630\u0627 \u0639\u0646\u062F\u0643 \u0623\u064A \u0638\u0631\u0641 \u0648\u062D\u0628\u0651\u064A\u062A \u0646\u063A\u064A\u0631 \u0628\u0644\u062D\u062C\u0632 \u0627\u0648 \u0646\u0644\u063A\u064A \u062A\u062F\u0644\u0644 \u0648\u0645\u0627\u0643\u0648 \u0623\u064A \u0625\u0634\u0643\u0627\u0644,  \u0628\u0633 \u0628\u0644\u063A\u0646\u0627 \u0648\u0623\u0646\u0627 \u0628\u062E\u062F\u0645\u062A\u0643.`;
             console.log(`[Scheduled Reminder Job] Sending 4-hour pre-appointment reminder to ${patientName} (${phone}) for booking ${bookingCode}`);
-            await GoogleSheetsService.updateReminderStatus(bookingCode, "SENT");
+            let sent = false;
+            if (this.callbackSendWhatsApp) {
+              try {
+                await this.callbackSendWhatsApp(phone, reminderMessage);
+                sent = true;
+              } catch (err) {
+                console.warn(`[Scheduled Reminder Job] WhatsApp send failed for ${phone}:`, err);
+              }
+            } else {
+              console.warn("[Scheduled Reminder Job] No WhatsApp send callback registered - reminder NOT dispatched.");
+            }
+            if (sent) {
+              await GoogleSheetsService.updateReminderStatus(bookingCode, "SENT");
+            }
           }
         }
       }
@@ -1688,7 +2927,7 @@ app.get("/health", (req, res) => {
   try {
     const tenant = await GoogleSheetsService.getTenantConfig();
     console.log(`[Tenant Loaded Successfully]: Clinic = "${tenant.clinicName}", Branches = ${tenant.branches.map((b) => b.name).join(", ")}`);
-    WatchdogService.registerSendCallback(async (phone, text) => {
+    const sendWhatsAppText = async (phone, text) => {
       const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
       const token = process.env.WHATSAPP_ACCESS_TOKEN;
       if (phoneId && token) {
@@ -1698,11 +2937,13 @@ app.get("/health", (req, res) => {
           body: JSON.stringify({ messaging_product: "whatsapp", to: phone, type: "text", text: { body: text } })
         });
       }
-    });
+    };
+    WatchdogService.registerSendCallback(sendWhatsAppText);
     WatchdogService.startMonitoring(DynamicSlotEngine.getSessionsStore(), tenant);
     console.log("[Watchdog Service] Started session monitor worker with Live WhatsApp Dispatcher.");
+    ReminderJob.registerSendCallback(sendWhatsAppText);
     ReminderJob.startScheduler();
-    console.log("[Reminder Service] Started 4-hour pre-appointment background scheduler worker.");
+    console.log("[Reminder Service] Started 4-hour pre-appointment background scheduler worker with Live WhatsApp Dispatcher.");
   } catch (err) {
     console.error("\u{1F6A8} [Startup Error Loading Tenant Config]:", err);
   }

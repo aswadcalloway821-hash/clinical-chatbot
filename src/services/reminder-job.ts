@@ -1,10 +1,18 @@
 import { GoogleSheetsService } from './google-sheets.js';
+import { getBaghdadToday } from '../utils/baghdad-time.js';
 
 export class ReminderJob {
   private static isRunning = false;
+  private static callbackSendWhatsApp: ((phone: string, text: string) => Promise<void>) | null = null;
+
+  public static registerSendCallback(cb: (phone: string, text: string) => Promise<void>) {
+    this.callbackSendWhatsApp = cb;
+  }
 
   /**
-   * Main execution check for sending 4-hour pre-appointment reminders
+   * Main execution check for sending 4-hour pre-appointment reminders.
+   * IMPORTANT: The reminder message is actually dispatched via the registered WhatsApp callback
+   * BEFORE the row is marked SENT, so a failed send can be retried on the next scan.
    */
   public static async checkAndSendReminders(): Promise<void> {
     if (this.isRunning) return;
@@ -12,13 +20,13 @@ export class ReminderJob {
 
     try {
       const tenant = await GoogleSheetsService.getTenantConfig();
-      const rows = await (GoogleSheetsService as any).fetchSheetValues('Bookings!A1:Z500');
+      const rows = await GoogleSheetsService.fetchSheetValues('Bookings!A1:O500');
       if (!rows || rows.length < 2) {
         this.isRunning = false;
         return;
       }
 
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getBaghdadToday();
       const now = new Date();
 
       for (let i = 1; i < rows.length; i++) {
@@ -50,9 +58,24 @@ export class ReminderJob {
 اذا عندك أي ظرف وحبّيت نغير بلحجز او نلغي تدلل وماكو أي إشكال,  بس بلغنا وأنا بخدمتك.`;
 
             console.log(`[Scheduled Reminder Job] Sending 4-hour pre-appointment reminder to ${patientName} (${phone}) for booking ${bookingCode}`);
-            
-            // Mark reminder status as SENT in Google Sheets to prevent duplicate sending
-            await GoogleSheetsService.updateReminderStatus(bookingCode, 'SENT');
+
+            // 1. Actually dispatch the reminder via WhatsApp
+            let sent = false;
+            if (this.callbackSendWhatsApp) {
+              try {
+                await this.callbackSendWhatsApp(phone, reminderMessage);
+                sent = true;
+              } catch (err) {
+                console.warn(`[Scheduled Reminder Job] WhatsApp send failed for ${phone}:`, err);
+              }
+            } else {
+              console.warn('[Scheduled Reminder Job] No WhatsApp send callback registered - reminder NOT dispatched.');
+            }
+
+            // 2. Only mark SENT when the message was actually dispatched
+            if (sent) {
+              await GoogleSheetsService.updateReminderStatus(bookingCode, 'SENT');
+            }
           }
         }
       }
