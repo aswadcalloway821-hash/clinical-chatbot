@@ -2628,6 +2628,18 @@ setInterval(() => {
   }
 }, 15 * 60 * 1e3);
 var userBuffers = /* @__PURE__ */ new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [phone, buf] of userBuffers) {
+    if (now - buf.createdAt > 3e4) {
+      clearTimeout(buf.timer);
+      processAggregatedUserMessages(phone, [...buf.messages]).catch(() => {
+      });
+      userBuffers.delete(phone);
+      console.warn(`[Debounce Buffer] Flushed stale buffer for ${phone} (${buf.messages.length} msgs)`);
+    }
+  }
+}, 3e4);
 router.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -2680,7 +2692,7 @@ router.post("/webhook", (req, res) => {
   }
 });
 function enqueueMessageForProcessing(fromPhone, messageText) {
-  const DEBOUNCE_TIME_MS = 5e3;
+  const DEBOUNCE_TIME_MS = parseInt(process.env.MESSAGE_DEBOUNCE_MS || "4000", 10);
   const existingBuffer = userBuffers.get(fromPhone);
   if (existingBuffer) {
     clearTimeout(existingBuffer.timer);
@@ -2690,10 +2702,11 @@ function enqueueMessageForProcessing(fromPhone, messageText) {
       userBuffers.delete(fromPhone);
       await processAggregatedUserMessages(fromPhone, messagesToProcess);
     }, DEBOUNCE_TIME_MS);
-    console.log(`[Debounce Buffer] Appended message from ${fromPhone}. Buffer size: ${existingBuffer.messages.length}`);
+    console.log(`[Debounce Buffer] Appended message from ${fromPhone}. Buffer size: ${existingBuffer.messages.length}. Waiting ${DEBOUNCE_TIME_MS}ms...`);
   } else {
     const newBuffer = {
       messages: [messageText],
+      createdAt: Date.now(),
       timer: setTimeout(async () => {
         const messagesToProcess = [...newBuffer.messages];
         userBuffers.delete(fromPhone);
@@ -2701,7 +2714,7 @@ function enqueueMessageForProcessing(fromPhone, messageText) {
       }, DEBOUNCE_TIME_MS)
     };
     userBuffers.set(fromPhone, newBuffer);
-    console.log(`[Debounce Buffer] Started 2.5s timer for ${fromPhone}`);
+    console.log(`[Debounce Buffer] Started ${DEBOUNCE_TIME_MS}ms timer for ${fromPhone}`);
   }
 }
 async function processAggregatedUserMessages(fromPhone, messages) {

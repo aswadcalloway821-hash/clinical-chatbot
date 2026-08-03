@@ -17,12 +17,27 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000);
 
-// 2. Multi-Message Debounce Buffer (2.5 seconds) per phone number
+// 2. Multi-Message Debounce Buffer (configurable via MESSAGE_DEBOUNCE_MS, default 4s) per phone number
 interface UserMessageBuffer {
   messages: string[];
   timer: NodeJS.Timeout;
+  createdAt: number;
 }
 const userBuffers = new Map<string, UserMessageBuffer>();
+
+// Cleanup stale buffers older than 30 seconds (safety net for edge cases)
+setInterval(() => {
+  const now = Date.now();
+  for (const [phone, buf] of userBuffers) {
+    if (now - buf.createdAt > 30_000) {
+      clearTimeout(buf.timer);
+      // Process whatever was collected before discarding
+      processAggregatedUserMessages(phone, [...buf.messages]).catch(() => {});
+      userBuffers.delete(phone);
+      console.warn(`[Debounce Buffer] Flushed stale buffer for ${phone} (${buf.messages.length} msgs)`);
+    }
+  }
+}, 30_000);
 
 /**
  * WhatsApp Webhook Verification
@@ -97,10 +112,11 @@ router.post('/webhook', (req: Request, res: Response) => {
 });
 
 /**
- * Debounce Buffer Worker: Collects consecutive messages sent within 2.5 seconds
+ * Debounce Buffer Worker: Collects consecutive messages sent within the debounce window
+ * before forwarding them as a single combined message to the engine.
  */
 function enqueueMessageForProcessing(fromPhone: string, messageText: string) {
-  const DEBOUNCE_TIME_MS = 5000; // 5 seconds debounce buffer
+  const DEBOUNCE_TIME_MS = parseInt(process.env.MESSAGE_DEBOUNCE_MS || '4000', 10); // default 4 seconds
 
   const existingBuffer = userBuffers.get(fromPhone);
 
@@ -109,19 +125,18 @@ function enqueueMessageForProcessing(fromPhone: string, messageText: string) {
     existingBuffer.messages.push(messageText);
 
     existingBuffer.timer = setTimeout(async () => {
-      // 1. Extract messages & delete buffer immediately BEFORE starting async processing
       const messagesToProcess = [...existingBuffer.messages];
       userBuffers.delete(fromPhone);
 
       await processAggregatedUserMessages(fromPhone, messagesToProcess);
     }, DEBOUNCE_TIME_MS);
 
-    console.log(`[Debounce Buffer] Appended message from ${fromPhone}. Buffer size: ${existingBuffer.messages.length}`);
+    console.log(`[Debounce Buffer] Appended message from ${fromPhone}. Buffer size: ${existingBuffer.messages.length}. Waiting ${DEBOUNCE_TIME_MS}ms...`);
   } else {
     const newBuffer: UserMessageBuffer = {
       messages: [messageText],
+      createdAt: Date.now(),
       timer: setTimeout(async () => {
-        // 1. Extract messages & delete buffer immediately BEFORE starting async processing
         const messagesToProcess = [...newBuffer.messages];
         userBuffers.delete(fromPhone);
 
@@ -129,7 +144,7 @@ function enqueueMessageForProcessing(fromPhone: string, messageText: string) {
       }, DEBOUNCE_TIME_MS)
     };
     userBuffers.set(fromPhone, newBuffer);
-    console.log(`[Debounce Buffer] Started 2.5s timer for ${fromPhone}`);
+    console.log(`[Debounce Buffer] Started ${DEBOUNCE_TIME_MS}ms timer for ${fromPhone}`);
   }
 }
 
