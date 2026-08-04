@@ -27,8 +27,13 @@ export class HandoffManager {
    */
   public static executeHandoff(session: PatientSession, tenant: TenantConfig): string {
     session.currentState = 'HUMAN_HANDOFF';
-    
+
+    const s = session.slots || {};
+    const branch = tenant.branches.find(b => b.id === s.branchId || b.name === s.branchName);
+    const doctor = tenant.doctors.find(d => d.id === s.doctorId || d.name === s.doctorName);
+    const contactPhone = branch?.phone || doctor?.secretariatPhone || tenant.secretaryPhone;
+
     return `تمام عيني، راح أحول محادثتك فوراً للسكرتير لمساعدتك بالشكل المطلوب.
-تفضل رقم التواصل المباشر: ${tenant.secretaryPhone}`;
+تفضل رقم التواصل المباشر: ${contactPhone}`;
   }
 }

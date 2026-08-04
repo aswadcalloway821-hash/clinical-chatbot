@@ -253,7 +253,8 @@ export class GeminiService {
       const reply = response.response.text() || '';
       return this.cleanMarkdown(reply);
     } catch (error) {
-      return `تفضل عيني، يمكنك الاتصال بالسكرتارية لمعرفة كافة التفاصيل: ${tenant.secretaryPhone}.`;
+      const fallbackPhone = tenant.branches[0]?.phone || tenant.secretaryPhone;
+      return `تفضل عيني، يمكنك الاتصال بالسكرتارية لمعرفة كافة التفاصيل: ${fallbackPhone}.`;
     }
   }
 
@@ -366,6 +367,15 @@ export class GeminiService {
     }
 
     console.error('[Gemini] All models exhausted, returning fallback');
+    try {
+      const { GoogleSheetsService } = await import('./google-sheets.js');
+      await GoogleSheetsService.logSystemError(
+        `[GEMINI_EXHAUSTED] All models failed. tenant=${ctx.tenant.tenantId} msg="${(ctx.userMessage || '').substring(0, 60)}"`,
+        ctx.tenant.tenantId
+      ).catch(() => {});
+    } catch {
+      // logging is best-effort only
+    }
     return fallback;
   }
 
@@ -455,7 +465,10 @@ ${recentTurns || 'بداية المحادثة'}
 - لا تكرري نفس الصيغة في كل رد.
 
 === الروتين ===
-1. الفرع → القسم → الخدمة → المواعيد → الاسم → ملخص → تأكيد → تثبيت
+1. اسألي عن الفرع أولاً، وبمجرد اختياره اعرضي في نفس الرد الأقسام المتاحة بذلك الفرع (وليس كل أقسام العيادة) واسألي عن القسم.
+   مثال: "تمام فرع الجزائر منورنا، عدنا قسم اسنان أو تجميل أو جراحة الفم والفكين — وش تحب؟"
+2. ثم الخدمة → المواعيد → الاسم → ملخص → تأكيد → تثبيت.
+3. إذا القسم المطلوب غير متوفر بذلك الفرع: وجهي الزبون مباشرة للفرع المتوفر فيه القسم بدل إضاعته.
 
 === الرد JSON فقط ===
 {

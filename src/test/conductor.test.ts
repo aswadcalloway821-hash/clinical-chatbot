@@ -4,7 +4,7 @@ import { GeminiService, ConductTurnResult, ConductTurnContext } from '../service
 import { GoogleSheetsService } from '../services/google-sheets.js';
 import { GoogleCalendarService } from '../services/google-calendar.js';
 import { DynamicSlotEngine } from '../core/dynamic-slot-engine.js';
-import { getBaghdadTomorrow } from '../utils/baghdad-time.js';
+import { getBaghdadTomorrow, addDays, formatDate } from '../utils/baghdad-time.js';
 import { TenantConfig, Doctor, Booking } from '../types/booking.js';
 
 const doctors: Doctor[] = [
@@ -287,5 +287,235 @@ describe('Gemini conversation conductor (dynamic booking loop)', () => {
     const session = DynamicSlotEngine.getSessionsStore().get(phone)!;
     assert.strictEqual(session.proposedSlot?.startTime, '08:00', 'earliest slot is د. سارة at 08:00');
     assert.strictEqual(session.proposedSlot?.doctorName, 'د. سارة');
+  });
+
+  it('smart modify: keeps branch/service/doctor, only re-slots the time', async () => {
+    const cluster = freshCluster();
+    installMocks(cluster);
+    const phone = '07710000006';
+    let cancelledCode = '';
+    let calendarCancelled = 0;
+
+    const oldBooking: Booking = {
+      bookingCode: 'BK-100',
+      tenantId: 'test_tenant',
+      patientPhone: phone,
+      patientName: 'علي حسن',
+      patientTag: 'RETURNING',
+      branchId: 'br_karrada',
+      branchName: 'الكرادة',
+      doctorId: 'doc_ali',
+      doctorName: 'د. علي',
+      serviceId: 's2',
+      serviceName: 'تنظيف الأسنان',
+      department: 'أسنان',
+      date: getBaghdadTomorrow(),
+      startTime: '16:00',
+      endTime: '16:36',
+      durationMinutes: 36,
+      status: 'CONFIRMED',
+      createdAt: new Date().toISOString(),
+      calendarEventId: 'evt-old',
+      calendarId: 'primary'
+    };
+
+    mock.method(GoogleSheetsService, 'findActiveBookingByPhone', async () => oldBooking);
+    mock.method(GoogleSheetsService, 'cancelBookingInSheet', async (code: string) => {
+      cancelledCode = code;
+      return oldBooking;
+    });
+    mock.method(GoogleCalendarService, 'cancelAppointment', async () => { calendarCancelled++; return true; });
+
+    const reply = await DynamicSlotEngine.processMessage(phone, 'اريد اعدل حجزي خليها ب 5', tenant);
+
+    assert.strictEqual(cancelledCode, 'BK-100', 'old booking cancelled');
+    assert.strictEqual(calendarCancelled, 1, 'calendar event of old booking cancelled');
+    assert.match(reply, /تم إلغاء حجزك السابق \(BK-100\)/);
+    assert.match(reply, /نفس الفرع \(الكرادة\)/);
+    assert.match(reply, /نفس الخدمة \(تنظيف الأسنان\)/);
+    assert.match(reply, /نفس الطبيب/);
+
+    const sess = DynamicSlotEngine.getSessionsStore().get(phone)!;
+    assert.strictEqual(sess.status, 'IN_PROGRESS', 'no auto-restart of the routine');
+    assert.strictEqual(sess.slots?.branchName, 'الكرادة', 'branch preserved');
+    assert.strictEqual(sess.slots?.serviceName, 'تنظيف الأسنان', 'service preserved');
+    assert.strictEqual(sess.slots?.doctorName, 'د. علي', 'doctor preserved');
+    assert.strictEqual(sess.slots?.patientName, 'علي حسن', 'patient name preserved');
+    assert.strictEqual(sess.slots?.department, 'أسنان', 'department preserved');
+    assert.ok(sess.pendingProposal, 'new slot proposal staged for confirmation');
+    assert.ok(sess.proposedSlot?.startTime, 'replacement slot proposed');
+    assert.strictEqual(cluster.capturedBookings.length, 0, 'nothing re-committed without confirmation');
+  });
+
+  it('smart modify: "من 4 ل 6" keeps details and stages a new proposal', async () => {
+    const cluster = freshCluster();
+    installMocks(cluster);
+    const phone = '07710000007';
+
+    const oldBooking: Booking = {
+      bookingCode: 'BK-101',
+      tenantId: 'test_tenant',
+      patientPhone: phone,
+      patientName: 'ليث كريم',
+      patientTag: 'RETURNING',
+      branchId: 'br_karrada',
+      branchName: 'الكرادة',
+      doctorId: 'doc_ali',
+      doctorName: 'د. علي',
+      serviceId: 's2',
+      serviceName: 'تنظيف الأسنان',
+      department: 'أسنان',
+      date: getBaghdadTomorrow(),
+      startTime: '16:00',
+      endTime: '16:36',
+      durationMinutes: 36,
+      status: 'CONFIRMED',
+      createdAt: new Date().toISOString()
+    };
+
+    mock.method(GoogleSheetsService, 'findActiveBookingByPhone', async () => oldBooking);
+    mock.method(GoogleSheetsService, 'cancelBookingInSheet', async () => oldBooking);
+
+    const reply = await DynamicSlotEngine.processMessage(phone, 'اريد اعدل الوقت من 4 ل 6', tenant);
+    assert.match(reply, /تم إلغاء حجزك السابق \(BK-101\)/);
+    const sess = DynamicSlotEngine.getSessionsStore().get(phone)!;
+    assert.strictEqual(sess.slots?.branchName, 'الكرادة');
+    assert.strictEqual(sess.slots?.serviceName, 'تنظيف الأسنان');
+    assert.strictEqual(sess.slots?.doctorName, 'د. علي');
+    assert.ok(sess.pendingProposal);
+  });
+
+  it('cancel booking: confirmation only, no auto-restart', async () => {
+    const cluster = freshCluster();
+    installMocks(cluster);
+    const phone = '07710000008';
+
+    const oldBooking: Booking = {
+      bookingCode: 'BK-200',
+      tenantId: 'test_tenant',
+      patientPhone: phone,
+      patientName: 'علي حسن',
+      patientTag: 'RETURNING',
+      branchId: 'br_karrada',
+      branchName: 'الكرادة',
+      doctorId: 'doc_ali',
+      doctorName: 'د. علي',
+      serviceId: 's2',
+      serviceName: 'تنظيف الأسنان',
+      department: 'أسنان',
+      date: getBaghdadTomorrow(),
+      startTime: '16:00',
+      endTime: '16:36',
+      durationMinutes: 36,
+      status: 'CONFIRMED',
+      createdAt: new Date().toISOString()
+    };
+
+    mock.method(GoogleSheetsService, 'findActiveBookingByPhone', async () => oldBooking);
+    mock.method(GoogleSheetsService, 'cancelBookingInSheet', async () => oldBooking);
+
+    const reply = await DynamicSlotEngine.processMessage(phone, 'الغي حجزي', tenant);
+    assert.match(reply, /تم إلغاء حجزك \(BK-200\)/);
+    assert.doesNotMatch(reply, /أخبرني شنو|الخدمة أو الفرع/, 'must NOT start a new booking routine');
+    assert.strictEqual(cluster.capturedBookings.length, 0);
+    assert.ok(!DynamicSlotEngine.getSessionsStore().has(phone), 'session cleaned after cancel');
+  });
+
+  it('getSecretaryPhone: branch phone wins, then doctor, then tenant fallback', async () => {
+    const s1 = {
+      phoneNumber: 'x', tenantId: 'test_tenant', currentState: 'GREETING' as const,
+      failedNluAttempts: 0, lastInteractionTime: Date.now(),
+      slots: { branchId: 'br_karrada', branchName: 'الكرادة' }
+    };
+    assert.strictEqual((DynamicSlotEngine as any).getSecretaryPhone(s1, tenant), '07', 'branch phone used first');
+
+    const s2 = { ...s1, slots: { doctorId: 'doc_ali', doctorName: 'د. علي' } };
+    assert.strictEqual((DynamicSlotEngine as any).getSecretaryPhone(s2, tenant), '07881015584', 'doctor has no secretariatPhone → tenant fallback');
+
+    const s3 = { ...s1, slots: {} };
+    assert.strictEqual((DynamicSlotEngine as any).getSecretaryPhone(s3, tenant), '07881015584');
+  });
+
+  it('buildServiceList: clear message when branch has no matching services (no all-clinic fallback)', async () => {
+    const session = {
+      phoneNumber: 'y', tenantId: 'test_tenant', currentState: 'GREETING' as const,
+      failedNluAttempts: 0, lastInteractionTime: Date.now(),
+      slots: { branchId: 'br_mansour', branchName: 'المنصور', department: 'أسنان' }
+    };
+    const list = (DynamicSlotEngine as any).buildServiceList(session, tenant);
+    assert.strictEqual(list.names.length, 0, 'no services at المنصور for أسنان');
+    assert.match(list.text, /ماكو خدمات/);
+    assert.match(list.text, /المنصور/);
+    assert.doesNotMatch(list.text, /تنظيف الأسنان|حشوة/, 'must NOT leak services from other branches');
+  });
+
+  it('extractDesiredTime parses colloquial modify times', async () => {
+    const x = (DynamicSlotEngine as any).extractDesiredTime;
+    assert.strictEqual(x('خليها ب 5'), '17:00');
+    assert.strictEqual(x('اريد نفسة بس اريد ساعة ب 6'), '18:00');
+    assert.strictEqual(x('من 4 ل 6'), '18:00');
+    assert.strictEqual(x('الساعة 9'), '09:00');
+    assert.strictEqual(x('الساعة 5:30'), '17:30');
+    assert.strictEqual(x('تمام'), null);
+    assert.strictEqual(x(''), null);
+  });
+
+  it('COMPLETED_LOCKED: closing message without Gemini, and "حجز جديد" restarts', async () => {
+    const cluster = freshCluster();
+    installMocks(cluster);
+    const phone = '07710000012';
+    installConductor(director());
+
+    // Complete a booking first
+    await DynamicSlotEngine.processMessage(phone, 'مرحبا', tenant);
+    await DynamicSlotEngine.processMessage(phone, 'تنظيف الأسنان', tenant);
+    await DynamicSlotEngine.processMessage(phone, 'نعم، موافق', tenant);
+    await DynamicSlotEngine.processMessage(phone, 'تمام، اسمي علي حسن', tenant);
+    await DynamicSlotEngine.processMessage(phone, 'نعم أثبت', tenant);
+    const sess = DynamicSlotEngine.getSessionsStore().get(phone)!;
+    assert.strictEqual(sess.status, 'COMPLETED_LOCKED');
+
+    // Ask about services after completion → closing message, Gemini NEVER called
+    let geminiCalls = 0;
+    installConductor(async () => { geminiCalls++; return { reply: '؟', intent: 'answer', action: 'GET_SLOTS', proposed: {} }; });
+    const after = await DynamicSlotEngine.processMessage(phone, 'شنو خدماتكم', tenant);
+    assert.match(after, /حجزك السابق/, 'must return closing, not Gemini tools');
+    assert.strictEqual(geminiCalls, 0, 'Gemini must NOT be called for locked sessions');
+    assert.strictEqual(cluster.capturedBookings.length, 1, 'no new booking created');
+
+    // "حجز جديد" → resets locked session and restarts the routine
+    installConductor(director());
+    const restart = await DynamicSlotEngine.processMessage(phone, 'حجز جديد', tenant);
+    const sess2 = DynamicSlotEngine.getSessionsStore().get(phone)!;
+    assert.strictEqual(sess2.status, 'IN_PROGRESS', 'session unlocked');
+    assert.match(restart, /الكرادة/, 'restart asks for branch again');
+  });
+
+  it('resolveSlotsForProposal: NO_DOCTOR + NO_SLOTS clear user messages', async () => {
+    // كشفية عامة has no pinned doctor, and المنصور has no doctors at all → NO_DOCTOR
+    const s1 = {
+      phoneNumber: 'z', tenantId: 'test_tenant', currentState: 'GREETING' as const,
+      failedNluAttempts: 0, lastInteractionTime: Date.now(),
+      slots: { branchId: 'br_mansour', branchName: 'المنصور', serviceId: 's1', serviceName: 'كشفية عامة', department: 'عام' }
+    };
+    const res1 = (DynamicSlotEngine as any).resolveSlotsForProposal(s1, tenant, []);
+    assert.strictEqual(res1.ok, false);
+    assert.match(res1.text, /ماكو طبيب/, 'NO_DOCTOR message');
+
+    // Block د. سارة's entire 7-day scan window (works 08:00-10:00, 60-min service) → NO_SLOTS
+    const s2 = {
+      phoneNumber: 'w', tenantId: 'test_tenant', currentState: 'GREETING' as const,
+      failedNluAttempts: 0, lastInteractionTime: Date.now(),
+      slots: { branchId: 'br_karrada', branchName: 'الكرادة', serviceId: 's3', serviceName: 'حشوة تجميلية', department: 'تجميل' }
+    };
+    const busy: any[] = [];
+    let cursor = getBaghdadTomorrow();
+    for (let i = 0; i < 7; i++) {
+      busy.push({ bookingCode: `BK-${i}`, doctorId: 'd_sara', doctorName: 'د. سارة', date: cursor, startTime: '08:00', endTime: '10:00', status: 'CONFIRMED', patientPhone: 'x' });
+      cursor = formatDate(addDays(new Date(cursor), 1));
+    }
+    const res2 = (DynamicSlotEngine as any).resolveSlotsForProposal(s2, tenant, busy);
+    assert.strictEqual(res2.ok, false);
+    assert.match(res2.text, /ما لقينا مواعيد شاغرة/, 'NO_SLOTS message');
   });
 });
